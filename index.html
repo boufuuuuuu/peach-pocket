@@ -11,25 +11,27 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
-  <title>Peach Pocket | iPhone動画ライブラリ v1.4</title>
+  <title>桃息吐息 | iPhone動画ライブラリ v1.5</title>
 </head>
 <body>
   <main class="layout" id="app">
-    <header class="topbar"><div><div class="eyebrow">PRIVATE MEDIA LIBRARY</div><h1>Peach <span>Pocket</span></h1></div><button id="addBtn" class="circle" aria-label="作品を追加">＋</button></header>
+    <header class="topbar"><div><div class="eyebrow">自分だけの動画ライブラリ</div><h1>桃<span>息吐息</span></h1></div><button id="addBtn" class="circle" aria-label="作品を追加">＋</button></header>
     <div class="quick-actions"><button type="button" id="addVideoBtn">＋ 動画を一括追加</button><span class="privacy-chip">端末ごとに独立</span></div>
     <label class="local-save"><input type="checkbox" id="saveVideoLocally" checked /> 動画本体もiPhoneに保存して、次回以降も再生（容量に注意）</label>
     <section id="searchPanel" class="search-panel"><label for="search" class="sr-only">作品検索</label><input id="search" type="search" placeholder="品番・作品名・出演者で検索" autocomplete="off" /><select id="provider" aria-label="提供元"><option value="">すべて</option><option value="local">端末内</option><option value="licensed">許可済みURL</option><option value="peach">Peach</option><option value="missav">MISSAV</option><option value="javdb">JavDB</option><option value="jable">Jable</option></select></section>
     <section id="homeView" class="view">
-      <section class="live-panel" aria-label="外部サイト検索">
-        <div class="live-head"><h2>3サイト検索</h2><span class="privacy-chip">検索APIは任意設定</span></div>
+      <div class="section-heading"><h2>マイライブラリ</h2><small id="count"></small></div><div id="library" class="items"></div>
+      <details class="live-panel" id="livePanel" aria-label="外部サイト検索"><summary class="live-summary">3サイト検索・外部カタログを開く <span>任意設定</span></summary><div class="live-panel-inner">
+        <div class="live-head"><h2>3サイト検索</h2><span class="privacy-chip">外部連携は任意設定</span></div>
         <p class="note">API設定後は入力に合わせて自動検索し、3つの提供元の同一品番を統合表示します。直接再生は明示的に許可された配信先のみ。未設定時は外部検索リンクです。</p>
         <button type="button" id="liveSearchBtn" class="live-primary">許可済みカタログを統合検索</button>
         <p id="liveCount" class="note" aria-live="polite">未検索</p>
         <div id="liveSiteLinks" class="live-sites"></div>
         <p class="note" id="liveStatus" aria-live="polite">検索APIは設定画面で登録できます。サイト公式のAPIが存在することを意味しません。</p>
         <div id="liveResults" class="live-results"></div>
-      </section>
-      <div class="section-heading"><h2>マイライブラリ</h2><small id="count"></small></div><div id="library" class="items"></div><h2>フォロー中の出演者に関連する登録作品</h2><div id="followedWorks"></div><p class="note">許可済みAPIがあれば出演者名による新着照合が可能です。手動確認と、アプリが開いている間の30分ごとの確認に対応します。iPhoneのバックグラウンド更新は保証しません。</p><button id="checkFollows" class="live-primary" type="button">フォロー中の出演者の新着を確認</button><p id="followStatus" class="note" aria-live="polite"></p><div id="followNewResults" class="live-results"></div></section>
+      </div></details>
+
+<h2>フォロー中の出演者に関連する登録作品</h2><div id="followedWorks"></div><p class="note">許可済みAPIがあれば出演者名による新着照合が可能です。手動確認と、アプリが開いている間の30分ごとの確認に対応します。iPhoneのバックグラウンド更新は保証しません。</p><button id="checkFollows" class="live-primary" type="button">フォロー中の出演者の新着を確認</button><p id="followStatus" class="note" aria-live="polite"></p><div id="followNewResults" class="live-results"></div></section>
     <section id="favoritesView" class="view" hidden><div class="section-heading"><h2>お気に入り</h2></div><div id="favorites" class="items"></div></section>
     <section id="continueView" class="view" hidden><div class="section-heading"><h2>続きから再生</h2></div><div id="continues" class="items"></div></section>
     <section id="duplicatesView" class="view" hidden><div class="section-heading"><h2>重複チェック</h2></div><p id="duplicateCount" class="note"></p><div id="duplicates" class="duplicate-list"></div><h2>視聴統計</h2><p id="statsSummary" class="note"></p></section>

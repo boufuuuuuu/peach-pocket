@@ -1,6 +1,6 @@
 'use strict';
 // All library records remain in this browser's IndexedDB; video files are NEVER uploaded.
-const {PROVIDERS,clean,norm,safeURL,canonical,duplicateGroups,crossProviderGroups,importRows} = PeachCore;
+const {PROVIDERS,clean,norm,safeURL,canonical,duplicateGroups,crossProviderGroups,fileDuplicateGroups,importRows} = PeachCore;
 const {encrypt, decrypt, isEncrypted, passOK} = PeachBackup;
 const Media = PeachMedia;
 const Live = PeachLive;
@@ -8,6 +8,9 @@ const Catalog = PeachCatalog;
 const DATABASE='peach-pocket-db1';
 const $=id=>document.getElementById(id);
 const objUrls=new Map();
+const thumbnailURLs=new Map();
+const thumbnailJobs=new Map();
+const thumbnailFailed=new Set();
 let db,records=[],activeId=null,currentId=null,selectedFileItem=null,lastSavedAt=0,loading=false,installation=null;
 let lastRecordedPosition=null, followNames=[], subtitleObjectURL=null, playingUrl=null;
 let liveSettings={api:{missav:'',javdb:'',jable:''},mediaOrigins:[],coverOrigins:[],autoSearch:true};
@@ -16,7 +19,7 @@ let liveSearchRun=0;
 const uid=()=>globalThis.crypto?.randomUUID?.()||`id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const elem=(tag,cls,txt)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n;};
 function toast(message){const n=$('toast');n.textContent=message;n.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>n.classList.remove('show'),3400);}
-function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DATABASE,3);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('items'))req.result.createObjectStore('items',{keyPath:'id'});if(!req.result.objectStoreNames.contains('meta'))req.result.createObjectStore('meta',{keyPath:'key'});if(!req.result.objectStoreNames.contains('media'))req.result.createObjectStore('media',{keyPath:'id'});};req.onerror=()=>reject(req.error);req.onsuccess=()=>resolve(req.result);});}
+function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DATABASE,4);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('items'))req.result.createObjectStore('items',{keyPath:'id'});if(!req.result.objectStoreNames.contains('meta'))req.result.createObjectStore('meta',{keyPath:'key'});if(!req.result.objectStoreNames.contains('media'))req.result.createObjectStore('media',{keyPath:'id'});if(!req.result.objectStoreNames.contains('thumbnails'))req.result.createObjectStore('thumbnails',{keyPath:'id'});};req.onerror=()=>reject(req.error);req.onsuccess=()=>resolve(req.result);});}
 function readMeta(key){return new Promise((resolve,reject)=>{const req=db.transaction('meta').objectStore('meta').get(key);req.onsuccess=()=>resolve(req.result?.value);req.onerror=()=>reject(req.error);});}
 function writeMeta(key,value){return new Promise((resolve,reject)=>{const tx=db.transaction('meta','readwrite');tx.objectStore('meta').put({key,value});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
 async function initLiveSettings(){
@@ -195,15 +198,54 @@ function saveOne(item){return new Promise((resolve,reject)=>{const tx=db.transac
 function deleteOne(id){return new Promise((resolve,reject)=>{const tx=db.transaction('items','readwrite');tx.objectStore('items').delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
 async function reload(){records=(await readAll()).map(row=>canonical(row,uid)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));render();}
 async function store(item){const r=canonical({...item,updatedAt:new Date().toISOString()},uid);await saveOne(r);await reload();}
+async function backfillLegacyFingerprints(limit=12){
+ let count=0;
+ for(const r of records){
+   if(count>=limit)break;
+   if(r.provider!=='local'||!r.hasLocalCopy||r.fileFingerprint)continue;
+   count++;
+   try{
+     const copy=await Media.get(db,r.id);
+     if(!copy?.blob)continue;
+     const fp=await Media.fingerprint(copy.blob);
+     await saveOne({...r,fileFingerprint:fp});
+     r.fileFingerprint=fp;
+   }catch{} // Existing v1.4 files must remain usable even when hashing fails.
+ }
+ if(count)render();
+}
 function allVisible(){const q=$('search').value.trim().toLowerCase(),codeQ=norm(q),provider=$('provider').value;return records.filter(r=>(!provider||r.provider===provider)&&(!q||[r.title,r.code,...r.performers].join(' ').toLowerCase().includes(q)||(codeQ&&norm(r.code).includes(codeQ))));}
+async function thumbnailURLFor(record){
+ if(thumbnailURLs.has(record.id))return thumbnailURLs.get(record.id);
+ if(thumbnailFailed.has(record.id))return '';
+ if(thumbnailJobs.has(record.id))return thumbnailJobs.get(record.id);
+ const task=(async()=>{
+   try{
+     let row=await Media.getThumbnail(db,record.id);
+     if(!row?.blob && record.hasLocalCopy){
+       const original=await Media.get(db,record.id);
+       if(original?.blob){const thumb=await Media.captureThumbnail(original.blob);if(thumb){await Media.putThumbnail(db,record.id,thumb);row={blob:thumb};}}
+     }
+     if(!row?.blob){thumbnailFailed.add(record.id);return '';}
+     const url=URL.createObjectURL(row.blob);thumbnailURLs.set(record.id,url);return url;
+   }catch{thumbnailFailed.add(record.id);return '';}
+   finally{thumbnailJobs.delete(record.id);}
+ })();thumbnailJobs.set(record.id,task);return task;
+}
+function bindThumbnail(cover,record){
+ if(record.provider!=='local')return;
+ const img=elem('img','cover-image');img.alt=`${record.title} の動画サムネイル`;img.loading='lazy';
+ thumbnailURLFor(record).then(url=>{if(url && cover.isConnected){img.src=url;cover.prepend(img);}}).catch(()=>{});
+}
 function renderCards(id,list){const parent=$(id);parent.replaceChildren();if(!list.length){const none=elem('div','empty','作品がありません。右上の＋で登録、または「動画を追加」から始められます。');parent.append(none);return;}
- for(const r of list){const card=elem('article','item');const cover=elem('div','cover');const thumb=imageFor(r.coverURL,r.title);if(thumb)cover.append(thumb);else cover.append(elem('span','film','▶'));cover.append(elem('span','provider',PROVIDERS[r.provider]));card.append(cover);const body=elem('div','item-body');body.append(elem('div','item-title',r.title),elem('div','code',r.code||r.performers.join('・')||'作品情報'));
+ for(const r of list){const card=elem('article','item');const cover=elem('div','cover');const thumb=imageFor(r.coverURL,r.title);if(thumb)cover.append(thumb);else cover.append(elem('span','film','▶'));bindThumbnail(cover,r);cover.append(elem('span','provider',PROVIDERS[r.provider]));card.append(cover);const body=elem('div','item-body');body.append(elem('div','item-title',r.title),elem('div','code',r.code||r.performers.join('・')||'作品情報'));
  const bar=elem('div','progress');const fill=elem('div');fill.style.width=`${Math.min(100,r.duration?Math.max(0,r.lastPosition/r.duration*100):r.progressPercent)}%`;bar.append(fill);body.append(bar);
  const controls=elem('div','controls');const action=elem('button','play',r.provider==='local'?(r.hasLocalCopy?'▶ 保存動画を再生':objUrls.has(r.id)?'▶ 再生':'動画を選ぶ'):r.provider==='licensed'||Catalog.safePlayable(r,liveSettings.mediaOrigins)?'▶ アプリ内で再生':'参照ページ');action.addEventListener('click',()=>start(r));const fav=elem('button',`heart${r.isFavorite?' on':''}`,r.isFavorite?'♥ 保存済み':'♡ 保存');fav.addEventListener('click',()=>syncGroupState(r,{isFavorite:!r.isFavorite}).catch(e=>toast(e.message)));controls.append(action,fav);body.append(controls);
  const small=elem('div','secondary-controls');const edit=elem('button','', '編集');edit.addEventListener('click',()=>editItem(r));const watched=elem('button','',r.isWatched?'未視聴へ':'視聴済み');watched.addEventListener('click',()=>syncGroupState(r,{isWatched:!r.isWatched}).catch(e=>toast(e.message)));small.append(edit,watched);body.append(small);card.append(body);parent.append(card);
  }}
-function render(){const rows=allVisible();$('count').textContent=`${rows.length} 件`;renderCards('library',rows);renderCards('favorites',rows.filter(r=>r.isFavorite));renderCards('continues',rows.filter(r=>r.lastPosition>0&&!r.isWatched));const d=duplicateGroups(rows);$('duplicateCount').textContent=`同じ品番の登録 ${d.length}組 / 複数提供元 ${crossProviderGroups(rows).length}組`;
- const area=$('duplicates');area.replaceChildren();if(!d.length)area.append(elem('p','note','重複候補はまだありません。'));
+function render(){const rows=allVisible();$('count').textContent=`${rows.length} 件`;renderCards('library',rows);renderCards('favorites',rows.filter(r=>r.isFavorite));renderCards('continues',rows.filter(r=>r.lastPosition>0&&!r.isWatched));const d=duplicateGroups(rows),fdups=fileDuplicateGroups(rows);$('duplicateCount').textContent=`同じ品番 ${d.length}組 / 同一動画候補 ${fdups.length}組 / 複数提供元 ${crossProviderGroups(rows).length}組`;
+ const area=$('duplicates');area.replaceChildren();if(!d.length&&!fdups.length)area.append(elem('p','note','重複候補はまだありません。'));
+ for(const group of fdups){const n=elem('div','duplicate-row');n.append(elem('strong','','動画内容が一致する可能性'),elem('span','',group.map(x=>x.title).join(' / ')));area.append(n);}
  const stats=PeachStats.compute(records);$('statsSummary').textContent=`保存動画 ${records.filter(x=>x.hasLocalCopy).length}本 · 視聴済み ${stats.watched}件 · お気に入り ${stats.favorites}件 · 再生回数 ${stats.plays}回 · 累計 ${stats.watchHours}時間`;
  const followed=records.filter(r=>r.performers.some(n=>followNames.includes(n)));
  $('followedWorks').replaceChildren();for(const r of followed.slice(0,15)){$('followedWorks').append(elem('div','following-result',`${r.code||r.title} · ${r.performers.filter(n=>followNames.includes(n)).join('・')}`));}
@@ -245,30 +287,44 @@ async function savePosition(){if(loading||!currentId)return;const video=$('playe
 async function closeVideo(){const video=$('player');video.pause();try{await savePosition();}catch(err){toast('再生位置を保存できませんでした');}video.removeAttribute('src');video.load();if(playingUrl){URL.revokeObjectURL(playingUrl);playingUrl=null;}if(subtitleObjectURL){URL.revokeObjectURL(subtitleObjectURL);subtitleObjectURL=null;}const tr=$('subtitleTrack');tr.removeAttribute('src');tr.hidden=true;lastRecordedPosition=null;currentId=null;if($('playerDialog').open)$('playerDialog').close();render();}
 async function chooseFile(file,itemId,autoPlay=true){
  if(!file)return;
- if(!Media.isVideo(file)){throw Error(file.size>Media.MAX_VIDEO_BYTES?'1ファイルは1GB以下で登録してください':'対応する動画（MP4・MOV・WebMなど）を選択してください');}
+ if(!Media.isVideo(file))throw Error(file.size>Media.MAX_VIDEO_BYTES?'1ファイルは1GB以下で登録してください':'対応する動画（MP4・MOV・WebMなど）を選択してください');
+ const fp=await Media.fingerprint(file);
  let record=records.find(r=>r.id===itemId);
- if(!record){const meta=Media.fileNameToMeta(file.name);record=canonical({id:uid(),...meta,provider:'local',needsFile:true},uid);await store(record);}
+ const duplicate=!itemId?await Media.matchExisting(db,file,fp,records):null;
+ if(duplicate){
+   const updated=duplicate.fileFingerprint===fp?duplicate:{...duplicate,fileFingerprint:fp};
+   if(updated!==duplicate)await store(updated);
+   if(duplicate.hasLocalCopy){
+     if(autoPlay){const copy=await Media.get(db,duplicate.id);if(copy?.blob){playingUrl=URL.createObjectURL(copy.blob);play(duplicate,playingUrl);}}
+     return {saved:true,id:duplicate.id,duplicate:true};
+   }
+   record=updated;
+ }
+ if(!record){const meta=Media.fileNameToMeta(file.name);record=canonical({id:uid(),...meta,provider:'local',needsFile:true,fileFingerprint:fp},uid);}
+ else record={...record,fileFingerprint:fp};
+ // Write a new record only after attempting video storage; no orphan on an invalid file.
  let saved=false;
  if($('saveVideoLocally').checked){
-   try{
-     await Media.put(db,record.id,file);
-     await store({...record,hasLocalCopy:true});saved=true;
-   }catch(e){toast(`動画の端末保存に失敗しました（容量・保存制限）。今回の再生は可能です: ${e.message}`);}
+   try{await Media.put(db,record.id,file,fp);saved=true;record={...record,hasLocalCopy:true};}
+   catch(e){toast(`動画の端末保存に失敗しました（容量・保存制限）。今回の再生は可能です: ${e.message}`);}
  }
+ await store(record);
+ try{const thumb=await Media.captureThumbnail(file);if(thumb){await Media.putThumbnail(db,record.id,thumb);const old=thumbnailURLs.get(record.id);if(old)URL.revokeObjectURL(old);thumbnailURLs.delete(record.id);thumbnailFailed.delete(record.id);}}
+ catch{} // Thumbnail failures must not prevent playback.
  const old=objUrls.get(record.id);if(old)URL.revokeObjectURL(old);objUrls.delete(record.id);
  if(autoPlay||!saved){const url=URL.createObjectURL(file);objUrls.set(record.id,url);if(autoPlay){const fresh=records.find(r=>r.id===record.id)||record;play(fresh,url);}}
- return {saved,id:record.id};
+ return {saved,id:record.id,duplicate:Boolean(duplicate)};
 }
 async function importVideoBatch(files){
  const valid=Array.from(files||[]);
  if(!valid.length)return;
  if(valid.length>50)throw Error('一度に追加できる動画は50本までです');
- let succeeded=0,stored=0,failed=[];
+ let added=0,reused=0,stored=0,failed=[];
  for(let i=0;i<valid.length;i++){
-  try{const r=await chooseFile(valid[i],selectedFileItem&&i===0?selectedFileItem:null,valid.length===1);succeeded++;if(r.saved)stored++;}
+  try{const r=await chooseFile(valid[i],selectedFileItem&&i===0?selectedFileItem:null,valid.length===1);if(r.duplicate)reused++;else added++;if(r.saved)stored++;}
   catch(e){failed.push(`${valid[i].name}: ${e.message}`);}
  }
- if(valid.length>1)toast(`${succeeded}件登録・端末保存${stored}件。失敗${failed.length}件${failed.length?'（詳細は設定画面）':''}`);
+ toast(`新規登録 ${added}件 / 重複検出 ${reused}件 / 保存済み ${stored}件 / 失敗 ${failed.length}件`);
  if(failed.length)$('importErrors').textContent=failed.slice(0,10).join(' / ');
  await reload();
 }
@@ -285,10 +341,10 @@ async function importJSON(file){
   await writeAll(result.items);await reload();toast(`${result.imported}件の作品を読み込みました`);
 }
 
-async function init(){db=await openDB();await initDevice();await initLiveSettings();await reload();$('addBtn').onclick=()=>editItem();$('addVideoBtn').onclick=()=>{selectedFileItem=null;$('videoFile').value='';$('videoFile').click();};$('search').oninput=()=>{render();renderSiteLinks();scheduleAutoSearch();};$('liveSearchBtn').onclick=()=>runLiveSearch().catch(e=>toast('ライブ検索失敗: '+e.message));$('saveLiveSettings').onclick=()=>saveLiveSettings().catch(e=>toast('設定保存失敗: '+e.message));$('checkFollows').onclick=checkFollowedReleases;$('provider').onchange=render;document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+async function init(){db=await openDB();await initDevice();await initLiveSettings();await reload();await backfillLegacyFingerprints();$('addBtn').onclick=()=>editItem();$('addVideoBtn').onclick=()=>{selectedFileItem=null;$('videoFile').value='';$('videoFile').click();};$('search').oninput=()=>{render();renderSiteLinks();scheduleAutoSearch();};$('liveSearchBtn').onclick=()=>runLiveSearch().catch(e=>toast('ライブ検索失敗: '+e.message));$('saveLiveSettings').onclick=()=>saveLiveSettings().catch(e=>toast('設定保存失敗: '+e.message));$('checkFollows').onclick=checkFollowedReleases;$('provider').onchange=render;document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
  $('editForm').addEventListener('submit',async ev=>{ev.preventDefault();const f=ev.currentTarget,provider=f.elements.provider.value,url=f.elements.referenceURL.value.trim();if(url&&!safeURL(url,provider)){toast('提供元に合うHTTPS URLを登録してください');return;}
  try{await store({...records.find(r=>r.id===activeId),id:activeId||uid(),title:f.elements.title.value,code:f.elements.code.value,performers:f.elements.performers.value,provider,referenceURL:url});$('editDialog').close();toast('保存しました');}catch(e){toast(`保存エラー: ${e.message}`);}});
- $('deleteBtn').onclick=async()=>{if(!activeId||!confirm('この作品情報を削除しますか？'))return;try{await Media.removeWithRecord(db,activeId);}catch(err){toast(`作品を削除できません: ${err.message}`);return;}const u=objUrls.get(activeId);if(u)URL.revokeObjectURL(u);objUrls.delete(activeId);$('editDialog').close();await reload();toast('登録を削除しました');};
+ $('deleteBtn').onclick=async()=>{if(!activeId||!confirm('この作品情報を削除しますか？'))return;try{await Media.removeWithRecord(db,activeId);}catch(err){toast(`作品を削除できません: ${err.message}`);return;}const tu=thumbnailURLs.get(activeId);if(tu){URL.revokeObjectURL(tu);thumbnailURLs.delete(activeId);}thumbnailFailed.delete(activeId);const u=objUrls.get(activeId);if(u)URL.revokeObjectURL(u);objUrls.delete(activeId);$('editDialog').close();await reload();toast('登録を削除しました');};
  $('videoFile').addEventListener('change',async ev=>{try{await importVideoBatch(ev.target.files);}catch(err){toast(`動画の読込に失敗: ${err.message}`);}finally{ev.target.value='';}});
  $('saveDeviceLabel').onclick=async()=>{
    const label=clean($('deviceLabel').value,35)||'自分のiPhone';

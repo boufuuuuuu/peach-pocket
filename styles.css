@@ -26,3 +26,13 @@
 
 /* v1.4 searchable, deduplicated catalog and image cards */
 .live-result-heading{display:flex;gap:12px;align-items:flex-start;min-width:0}.live-info{min-width:0;display:grid;gap:5px;flex:1}.live-info strong{line-height:1.45}.live-tags{display:flex;gap:5px;flex-wrap:wrap}.source-tag{background:#393d4d;color:#fff;border-radius:15px;padding:3px 8px;font-size:10px}.cover-image{width:100%;height:100%;object-fit:cover;display:block}.live-result-heading .cover-image{width:76px;height:102px;border-radius:8px;flex-shrink:0}.live-result-actions button:focus-visible{outline:2px solid #fff}.live-result-actions button{touch-action:manipulation}.cover .cover-image{position:absolute;inset:0}.cover .provider{z-index:1}#checkFollows{margin:10px 0 8px}#followNewResults{margin-bottom:15px}.settings .local-save{margin:8px 0}.settings .local-save input{width:18px}.live-result-actions small{align-self:center}.live-result-heading strong{word-break:break-word}
+
+/* v1.5: browse-first iPhone layout / Japanese identity */
+.topbar h1{font-size:clamp(25px,7vw,35px);letter-spacing:.02em}.topbar h1 span{color:var(--accent)}
+.live-panel{margin-top:20px;padding:0;overflow:hidden}.live-panel-inner{padding:0 13px 13px}
+.live-summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px 15px;font-size:14px;font-weight:700;min-height:48px}
+.live-summary::-webkit-details-marker{display:none}.live-summary span{font-size:11px;color:var(--muted);font-weight:400}
+.live-summary:after{content:'⌄';color:var(--accent);margin-left:4px}.live-panel[open] .live-summary:after{content:'⌃'}
+.cover{height:auto;aspect-ratio:16/10}.cover .cover-image{object-fit:cover}
+.item-title{overflow-wrap:anywhere}.items{gap:11px}
+@media(max-width:390px){.controls button{font-size:11px}.topbar{margin-bottom:14px}}

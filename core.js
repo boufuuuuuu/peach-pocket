@@ -59,6 +59,7 @@
       updatedAt: /^\d{4}-\d\d-\d\dT/.test(String(src.updatedAt||''))?clean(src.updatedAt,40):new Date().toISOString(),
       needsFile:Boolean(src.needsFile || provider==='local'),
       hasLocalCopy:Boolean(src.hasLocalCopy),
+      fileFingerprint:/^sha256-sampled-v1:[a-f0-9]{64}:[0-9]{1,13}$/.test(String(src.fileFingerprint||''))?src.fileFingerprint:'',
       watchCount:Math.max(0,Math.min(1000000,Number(src.watchCount)||0)),
       watchedSeconds:Math.max(0,Math.min(1e10,Number(src.watchedSeconds)||0)),
       lastPlayedAt:/^\d{4}-\d\d-\d\dT/.test(String(src.lastPlayedAt||''))?clean(src.lastPlayedAt,40):''
@@ -75,6 +76,16 @@
     return [...groups.entries()].filter(([,g])=>g.length>1).sort((a,b)=>b[1].length-a[1].length);
   }
   function crossProviderGroups(items) {return duplicateGroups(items).filter(([,g]) => new Set(g.map(r=>r.provider)).size>1);}
+  function fileDuplicateGroups(items) {
+    const groups=new Map();
+    for(const row of items){
+      if(row.provider!=='local'||!/^sha256-sampled-v1:[a-f0-9]{64}:[0-9]{1,13}$/.test(row.fileFingerprint||''))continue;
+      if(!groups.has(row.fileFingerprint))groups.set(row.fileFingerprint,[]);
+      groups.get(row.fileFingerprint).push(row);
+    }
+    return [...groups.values()].filter(rows=>rows.length>1).sort((a,b)=>b.length-a.length);
+  }
+
   function importRows(raw, existing, genId) {
     const rows=Array.isArray(raw)?raw:(raw?.items ?? raw?.works ?? raw?.records ?? null);
     if (!Array.isArray(rows) || rows.length>10000) throw Error('作品配列（最大10,000件）が必要です');
@@ -99,5 +110,5 @@
     }
     return {items:[...merged.values()],imported};
   }
-  return {PROVIDERS,HOSTS,clean,norm,safeURL,canonical,duplicateGroups,crossProviderGroups,importRows,isPublicHost};
+  return {PROVIDERS,HOSTS,clean,norm,safeURL,canonical,duplicateGroups,crossProviderGroups,fileDuplicateGroups,importRows,isPublicHost};
 });
