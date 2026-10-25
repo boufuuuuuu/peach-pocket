@@ -13,7 +13,7 @@ const thumbnailJobs=new Map();
 const thumbnailFailed=new Set();
 let db,records=[],activeId=null,currentId=null,selectedFileItem=null,lastSavedAt=0,loading=false,installation=null;
 let lastRecordedPosition=null, followNames=[], subtitleObjectURL=null, playingUrl=null;
-let liveSettings={api:{missav:'',javdb:'',jable:''},mediaOrigins:[],coverOrigins:[],autoSearch:true};
+let liveSettings={api:{missav:'',javdb:'',jable:'',ro85:''},mediaOrigins:[],coverOrigins:[],autoSearch:true};
 let liveCatalogRows=[],autoSearchTimer=null,followCheckBusy=false;
 let liveSearchRun=0;
 const uid=()=>globalThis.crypto?.randomUUID?.()||`id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -43,9 +43,17 @@ function renderSiteLinks(){
  const wrap=$('liveSiteLinks');if(!wrap)return;wrap.replaceChildren();
  const q=$('search').value.trim();
  for(const provider of Live.IDS){
-  const a=elem('a','',PROVIDERS[provider]);a.href=q?Live.siteSearchURL(provider,q):({missav:'https://missav.ws',javdb:'https://javdb.com',jable:'https://jable.tv'})[provider];
-  a.target='_blank';a.rel='noopener noreferrer';a.referrerPolicy='no-referrer';a.title=`${PROVIDERS[provider]}の外部検索ページを開く`;
+  const deep=Live.supportsDeepSearch(provider);
+  const a=elem('a','',deep?PROVIDERS[provider]:`${PROVIDERS[provider]}（サイト内検索）`);
+  a.href=q?Live.siteSearchURL(provider,q):Live.siteHomepage(provider);
+  a.target='_blank';a.rel='noopener noreferrer';a.referrerPolicy='no-referrer';
+  a.title=deep?`${PROVIDERS[provider]}の外部検索ページを開く`:`${PROVIDERS[provider]}の日本語トップを開き、サイト内の検索欄を使う`;
   wrap.append(a);
+  if(!deep && q){
+   const copy=elem('button','site-copy','検索語をコピー');copy.type='button';copy.title='検索語をコピーして85roのサイト内検索欄に貼り付ける';
+   copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(q);toast('検索語をコピーしました。85roで貼り付けて検索してください');}catch{toast('検索語のコピーに失敗しました。入力欄の文字列を手動コピーしてください');}});
+   wrap.append(copy);
+  }
  }
 }
 function imageFor(url,alt){
@@ -111,7 +119,7 @@ async function runLiveSearch(queryOverride=null,{quiet=false}={}){
  if(q.length<2){if(!quiet)toast('検索語は2文字以上入力してください');return [];} // no automatic empty-term harvest
  const button=$('liveSearchBtn'),status=$('liveStatus');
  const providers=Live.IDS.filter(p=>liveSettings.api[p]);
- if(!providers.length){if(!quiet)status.textContent='検索APIは未設定です。3サイトを直接読み取ることはできません。';return [];}
+ if(!providers.length){if(!quiet)status.textContent='検索APIは未設定です。外部4サイトの作品を直接読み取ることはできません。';return [];}
  const run=++liveSearchRun;button.disabled=true;if(!quiet)status.textContent=`${providers.length}件の許可済みカタログを照会中…`;
  try{
   const outcomes=await Promise.all(providers.map(async provider=>{

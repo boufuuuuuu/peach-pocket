@@ -8,7 +8,7 @@
   else root.PeachLive=api;
 })(typeof globalThis!=='undefined'?globalThis:this,function(Core){
   'use strict';
-  const IDS=['missav','javdb','jable'];
+  const IDS=['missav','javdb','jable','ro85'];
   const LIMIT=30;
   const MAX_RESPONSE=1024*1024;
   function isProvider(id){return IDS.includes(id);}
@@ -33,10 +33,17 @@
     for(const raw of values){const origin=validOrigin(raw);if(!origin)throw Error('HTTPSのオリジンのみを入力してください（例：https://media.example.org）');if(!set.includes(origin))set.push(origin);}
     return set;
   }
+  function siteHomepage(provider){
+    if(!isProvider(provider))throw Error('未対応サイト');
+    return ({missav:'https://missav.ws/',javdb:'https://javdb.com/',jable:'https://jable.tv/',ro85:'https://www.85ro.com/ja/'})[provider];
+  }
+  // 85ro: the search-form URL contract is unverified, so open the proven Japanese home page.
+  function supportsDeepSearch(provider){if(!isProvider(provider))throw Error('未対応サイト');return provider!=='ro85';}
   function siteSearchURL(provider,query){
     if(!isProvider(provider))throw Error('未対応サイト');
     const q=String(query||'').trim().slice(0,120);
     if(!q)return '';
+    if(provider==='ro85')return siteHomepage(provider);
     if(provider==='missav')return `https://missav.ws/search/${encodeURIComponent(q)}`;
     if(provider==='jable')return `https://jable.tv/search/${encodeURIComponent(q)}/`;
     return `https://javdb.com/search?q=${encodeURIComponent(q)}`;
@@ -92,5 +99,5 @@
       return validateCatalog(provider,JSON.parse(text),allowedOrigins,coverOrigins);
     } finally {clearTimeout(timeout);}
   }
-  return {IDS,endpointURL,parseOrigins,validOrigin,siteSearchURL,parseCatalogRow,validateCatalog,search};
+  return {IDS,endpointURL,parseOrigins,validOrigin,siteHomepage,supportsDeepSearch,siteSearchURL,parseCatalogRow,validateCatalog,search};
 });
