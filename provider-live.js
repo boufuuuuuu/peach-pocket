@@ -65,11 +65,14 @@
     // An explicit contractual flag in a trusted catalog is necessary; a scraped
     // URL, referer spoofing or found .m3u8 alone must never grant playback.
     const permitted=source.rights?.playbackAllowed===true && source.rights?.confirmed===true;
+    const embedPermitted=source.rights?.embedAllowed===true && source.rights?.confirmed===true;
     const stream=httpsURL(source.playbackURL||source.streamURL||'');
     const allowed=stream && allowedOrigins.includes(stream.origin);
     const playbackURL=(permitted&&allowed)?stream.href:'';
+    const embed=httpsURL(source.embedURL||'');
+    const embedURL=(embedPermitted&&embed&&allowedOrigins.includes(embed.origin))?embed.href:'';
     return {provider,title:title||code,code,performers,referenceURL:sourceURL,
-      coverURL,playbackURL,rightsConfirmed:Boolean(permitted&&allowed),
+      coverURL,playbackURL,embedURL,rightsConfirmed:Boolean((permitted&&allowed)||(embedPermitted&&embedURL)),
       publishedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(source.publishedAt||''))?source.publishedAt:''};
   }
   function validateCatalog(provider,payload,allowedOrigins=[],coverOrigins=[]){

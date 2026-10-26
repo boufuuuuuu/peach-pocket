@@ -36,3 +36,11 @@
 .cover{height:auto;aspect-ratio:16/10}.cover .cover-image{object-fit:cover}
 .item-title{overflow-wrap:anywhere}.items{gap:11px}
 @media(max-width:390px){.controls button{font-size:11px}.topbar{margin-bottom:14px}}
+
+/* v1.9: source-access UI and opt-in embed player. */
+.secondary-primary{background:#343747;color:#f9eef3;border:1px solid #5c5666;margin-top:8px}
+#embeddedPlayer{width:100%;height:min(54vh,410px);min-height:240px;border:0;background:#090909;border-radius:7px}
+#embeddedPlayer[hidden],#player[hidden],.player-actions[hidden]{display:none}
+#harvestStatus{white-space:pre-line}
+
+.embed-source-link:not([hidden]){display:inline-block;padding:10px 12px;margin-top:10px;border-radius:8px;color:#171019;background:var(--accent);text-decoration:none;font-size:13px;font-weight:700}

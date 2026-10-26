@@ -61,6 +61,7 @@
    if(!(blob instanceof Blob) || !blob.type.startsWith('image/') || blob.size<=0 || blob.size>THUMB_MAX_BYTES)throw Error('サムネイルが不正です');
    return new Promise((resolve,reject)=>{let tx;try{tx=db.transaction('thumbnails','readwrite');tx.objectStore('thumbnails').put({id,blob,createdAt:new Date().toISOString()});}catch(e){reject(e);return;}tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('画像保存失敗'));tx.onabort=()=>reject(tx.error||new Error('画像保存中断'));});
  }
+ async function thumbnailKeys(db){return request(db.transaction('thumbnails','readonly').objectStore('thumbnails').getAllKeys());}
  async function mediaMetadata(db){return new Promise((resolve,reject)=>{
    const rows=[];let tx;try{tx=db.transaction('media','readonly');const request=tx.objectStore('media').openCursor();request.onsuccess=()=>{const c=request.result;if(c){const v=c.value;rows.push({id:v.id,name:v.name,size:v.size,fingerprint:v.fingerprint||''});c.continue();}else resolve(rows);};request.onerror=()=>reject(request.error);}catch(e){reject(e);}
  });}
@@ -100,5 +101,5 @@
  }
  async function remove(db,id){return transaction(db,'readwrite',s=>s.delete(id));}
  async function keys(db){return request(db.transaction('media','readonly').objectStore('media').getAllKeys());}
- return {MAX_VIDEO_BYTES,SAMPLE_BYTES,isVideo,fileNameToMeta,prettyBytes,fingerprint,put,get,remove,removeWithRecord,keys,getThumbnail,putThumbnail,mediaMetadata,matchExisting,captureThumbnail};
+ return {MAX_VIDEO_BYTES,SAMPLE_BYTES,isVideo,fileNameToMeta,prettyBytes,fingerprint,put,get,remove,removeWithRecord,keys,getThumbnail,putThumbnail,mediaMetadata,thumbnailKeys,matchExisting,captureThumbnail};
 });

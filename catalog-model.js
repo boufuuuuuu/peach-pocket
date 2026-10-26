@@ -18,12 +18,13 @@
   for(const row of rows){
     const key=identity(row);if(!key)continue;
     let group=byKey.get(key);
-    if(!group){group={key,code:row.code||'',title:row.title||row.code||'名称未設定',performers:[],coverURL:'',sources:[],saved:savedByKey.get(key)||[],playable:null,publishedAt:''};byKey.set(key,group);}
+    if(!group){group={key,code:row.code||'',title:row.title||row.code||'名称未設定',performers:[],coverURL:'',sources:[],saved:savedByKey.get(key)||[],playable:null,embedPlayable:null,publishedAt:''};byKey.set(key,group);}
     if(group.sources.some(x=>x.provider===row.provider&&x.referenceURL===row.referenceURL&&x.code===row.code))continue;
     group.sources.push(row);
     for(const n of row.performers||[])if(n&&!group.performers.includes(n))group.performers.push(n);
     if(!group.coverURL&&row.coverURL)group.coverURL=row.coverURL;
     if(!group.playable&&row.rightsConfirmed===true&&row.playbackURL)group.playable=row;
+    if(!group.embedPlayable&&row.rightsConfirmed===true&&row.embedURL)group.embedPlayable=row;
     if(row.publishedAt&&(!group.publishedAt||row.publishedAt>group.publishedAt))group.publishedAt=row.publishedAt;
   }
   return [...byKey.values()].map(g=>({...g,isFavorite:g.saved.some(x=>x.isFavorite),isWatched:g.saved.some(x=>x.isWatched),lastPosition:Math.max(0,...g.saved.map(x=>Number(x.lastPosition)||0))}));
@@ -57,5 +58,10 @@
   if(!raw)return '';
   try {const u=new URL(raw);return allowedOrigins.includes(u.origin)?u.href:'';}catch{return '';}
  }
- return {identity,aggregate,mergeWithExisting,newFollowed,linkedStateUpdates,safePlayable};
+ function safeEmbed(row,allowedOrigins){
+  if(!row||row.rightsConfirmed!==true||!row.embedURL)return '';
+  const raw=Core.safeURL(row.embedURL,'licensed');if(!raw)return '';
+  try{const u=new URL(raw);return allowedOrigins.includes(u.origin)?u.href:'';}catch{return '';}
+ }
+ return {identity,aggregate,mergeWithExisting,newFollowed,linkedStateUpdates,safePlayable,safeEmbed};
 });

@@ -50,6 +50,7 @@
       // verify the allowed media origin again immediately before each play.
       rightsConfirmed:src.rightsConfirmed===true,
       playbackURL:src.rightsConfirmed===true?safeURL(src.playbackURL||'','licensed'):'',
+      embedURL:src.rightsConfirmed===true?safeURL(src.embedURL||'','licensed'):'',
       publishedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(src.publishedAt||''))?src.publishedAt:'',
 
       isFavorite:Boolean(src.isFavorite ?? src.favorite ?? false), isWatched:Boolean(src.isWatched ?? src.watched ?? false),

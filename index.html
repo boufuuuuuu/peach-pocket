@@ -7,11 +7,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="referrer" content="no-referrer" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: https:; worker-src 'self'; connect-src 'self' https:; object-src 'none'; base-uri 'none'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; frame-src https:; worker-src 'self'; connect-src 'self' https:; object-src 'none'; base-uri 'none'" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
-  <title>桃息吐息 | iPhone動画ライブラリ v1.6</title>
+  <title>桃息吐息 | iPhone動画ライブラリ v1.9</title>
 </head>
 <body>
   <main class="layout" id="app">
@@ -23,10 +23,17 @@
       <div class="section-heading"><h2>マイライブラリ</h2><small id="count"></small></div><div id="library" class="items"></div>
       <details class="live-panel" id="livePanel" aria-label="外部サイト検索"><summary class="live-summary">4サイト検索・外部カタログを開く <span>任意設定</span></summary><div class="live-panel-inner">
         <div class="live-head"><h2>4サイト検索</h2><span class="privacy-chip">外部連携は任意設定</span></div>
-        <p class="note">API設定後は入力に合わせて自動検索し、4つの提供元の同一品番を統合表示します。直接再生は明示的に許可された配信先のみ。未設定時は外部検索リンクです。</p>
+        <p class="note">権限のあるカタログAPIを登録した場合は4サイトを統合検索します。埋め込みプレイヤーも明示的に許可された提供元に限り利用できます。無設定での全作品取得や無条件再生は、サイト側の仕様により対応していません。</p>
         <button type="button" id="liveSearchBtn" class="live-primary">許可済みカタログを統合検索</button>
+        <button type="button" id="harvestBtn" class="live-primary secondary-primary">許可済みカタログをページ単位で一括取得</button>
+        <p id="harvestStatus" class="note" aria-live="polite">登録済みAPIからのみ取得。最大10ページ×4サイト・合計400件まで端末内カタログとして保存。全作品を保証する機能ではありません。</p>
         <p id="liveCount" class="note" aria-live="polite">未検索</p>
         <div id="liveSiteLinks" class="live-sites"></div><p class="note">85roは日本語トップページへのリンクです。検索URL形式は未確認のため、検索語コピー後にサイト側の検索欄を利用してください。18歳以上・各サイトの規約に従って利用してください。</p>
+        <div class="device-card"><strong>許可済み作品情報のオフライン取込</strong>
+        <p class="note">利用権限のあるJSONファイルをiPhoneに保存して選択すると、API接続なしで4サイト分の登録情報を検索できます。これは各サイトからの自動取得ではありません。再生許可情報は取り込みません。</p>
+        <div class="live-result-actions"><button id="importCatalogBtn" type="button">作品情報JSONを取り込む</button><button id="clearCatalogBtn" type="button">取込データを消去</button></div>
+        <p id="offlineCatalogStatus" class="note" aria-live="polite"></p>
+      </div>
         <p class="note" id="liveStatus" aria-live="polite">検索APIは設定画面で登録できます。サイト公式のAPIが存在することを意味しません。</p>
         <div id="liveResults" class="live-results"></div>
       </div></details>
@@ -38,7 +45,7 @@
     <section id="settingsView" class="view" hidden><h2>データと設定</h2><div class="settings"><div class="device-card"><strong>この端末のライブラリ</strong><span id="deviceId" class="note">端末識別情報を読み込み中</span><label for="deviceLabel">端末の表示名（端末内のみ）</label><input id="deviceLabel" maxlength="35" placeholder="自分のiPhone" /><button id="saveDeviceLabel" type="button">この端末の名前を保存</button></div><p>作品情報と保存指定した動画はこの端末のブラウザ内に保存されます。GitHubにはアップロードされません。</p>
 
  <div class="device-card"><strong>外部サイト検索API（任意・端末内設定）</strong>
-  <p class="note">MISSAV・JavDB・Jable・85roの公式検索APIは確認できていません。自身が利用権限を持つCORS対応JSON APIだけ登録してください。各サイトのURLを貼るだけでは利用できません。APIキー・パスワードを入力しないでください。</p>
+  <p class="note">MISSAV・JavDB・Jable・85roの一般公開の公式検索・全件取得APIは確認できていません。自身が利用権限を持つCORS対応JSON APIだけ登録してください。各サイトのURLを貼るだけでは利用できません。APIキー・パスワードを入力しないでください。</p>
   <label for="apiMissav">MISSAV用カタログAPI（HTTPS URL）</label><input id="apiMissav" type="url" maxlength="500" placeholder="https://catalog.example.org/search" />
   <label for="apiJavdb">JavDB用カタログAPI（HTTPS URL）</label><input id="apiJavdb" type="url" maxlength="500" placeholder="https://catalog.example.org/search" />
   <label for="apiJable">Jable用カタログAPI（HTTPS URL）</label><input id="apiJable" type="url" maxlength="500" placeholder="https://catalog.example.org/search" />
@@ -46,15 +53,31 @@
   <label for="allowedCoverOrigins">画像取得を許可するオリジン（任意・画像の読込先へ端末から通信します）</label><textarea id="allowedCoverOrigins" rows="2" placeholder="https://covers.example.org"></textarea>
   <label for="autoLiveSearch" class="local-save"><input id="autoLiveSearch" type="checkbox" checked /> 入力後に自動ライブ検索（登録済みAPIへ検索語を送信）</label>
   <label for="allowedMediaOrigins">再生を許可された配信オリジン（改行または空白区切り）</label><textarea id="allowedMediaOrigins" rows="2" placeholder="https://media.example.org"></textarea>
-  <p class="note">再生許可フラグ付きのデータでも、上記に登録した配信元からのみ内蔵プレイヤーで再生します。設定はこの端末内に保存されます。提供元の許可や権利確認は利用者自身でも行ってください。</p>
+  <p class="note">直接再生・iframe埋め込みは再生許可フラグ付きのカタログデータ、かつ許可した配信元からのみ行います。設定はこの端末内に保存されます。提供元の許可や権利確認は利用者自身でも行ってください。</p>
   <button id="saveLiveSettings" type="button">検索API設定を保存</button>
  </div>
- <div class="device-card"><strong>出演者フォロー（端末内の登録作品を検索）</strong><label for="followName">出演者名</label><input id="followName" placeholder="出演者名を入力" maxlength="80" /><button id="followBtn" type="button">フォロー登録</button><div id="followList"></div></div><label for="backupPassword">バックアップの合言葉（12文字以上・復元時に必要）</label><input id="backupPassword" type="password" minlength="12" maxlength="256" autocomplete="off" placeholder="長めの合言葉を設定" /><button id="exportBtn">暗号化バックアップを保存</button><button id="importBtn">バックアップを読み込む</button><p class="note">動画ファイルはバックアップに含まれません。合言葉を忘れると復元できません。旧v1.0の暗号化されていないJSONも読み込めます。</p><p class="note" id="backupStatus" aria-live="polite"></p><button id="storageBtn">端末ストレージを診断</button><button id="clearMediaBtn" type="button">端末保存した動画本体だけ削除</button><p class="note" id="importErrors" aria-live="polite"></p><button id="persistBtn" type="button">保存領域の保護を要求</button><button id="updateBtn" type="button">アプリの更新を確認</button><p class="note" id="storageStatus" aria-live="polite"></p><input id="backupFile" type="file" accept=".json,application/json" hidden /><p class="note" id="sourceNote"></p><p class="note">チェックを付けて端末内保存した動画は再起動後も選択不要ですが、iOSの保存容量制限・自動削除・アプリデータ消去の対象になり得ます。元の動画を別途保管してください。</p><p class="note">本アプリは個人管理用です。外部サイトの動画抽出、DRM解除、無許可の自動取得は行いません。</p></div></section>
+ <div class="device-card"><strong>出演者フォロー（端末内の登録作品を検索）</strong><label for="followName">出演者名</label><input id="followName" placeholder="出演者名を入力" maxlength="80" /><button id="followBtn" type="button">フォロー登録</button><div id="followList"></div></div><label for="backupPassword">バックアップの合言葉（12文字以上・復元時に必要）</label><input id="backupPassword" type="password" minlength="12" maxlength="256" autocomplete="off" placeholder="長めの合言葉を設定" /><button id="exportBtn">暗号化バックアップを保存</button><button id="importBtn">バックアップを読み込む</button><p class="note">上のJSONバックアップには動画が含まれません。動画本体を含める場合は「完全バックアップ」を使用してください。合言葉を忘れると復元できません。旧v1.0の暗号化されていないJSONも読み込めます。</p><p class="note" id="backupStatus" aria-live="polite"></p><div class="device-card"><strong>動画本体入り・暗号化完全バックアップ（新機能）</strong>
+<p class="note">作品情報・動画本体・サムネイル・出演者フォローを、合言葉で暗号化した1つの .momobak ファイルに保存／復元します。空き容量によっては大容量の処理に失敗します。まず小さな動画で復元を試してください。</p>
+<button id="fullExportBtn" type="button">動画を含めて完全バックアップを保存</button>
+<button id="fullImportBtn" type="button">完全バックアップから動画を復元</button>
+<input id="fullBackupFile" type="file" accept=".momobak,application/octet-stream" hidden />
+<p id="fullBackupStatus" class="note" aria-live="polite">外部サーバーへは送信しません。元動画も別途保管してください。</p></div>
+<div class="device-card"><strong>別端末間の暗号化同期（WebDAV・任意設定）</strong>
+<p class="note">CORS対応のHTTPS WebDAV保存先が必要です。お気に入り・視聴位置などの作品情報のみ同期し、動画本体は同期しません。アプリ起動中の5分間隔で自動同期できます。</p>
+<label for="syncEndpoint">WebDAVのファイルURL（https://.../momo-sync.json）</label><input id="syncEndpoint" type="url" placeholder="https://dav.example.org/private/momo-sync.json" />
+<label for="syncUser">WebDAVユーザーID</label><input id="syncUser" autocomplete="off" />
+<label for="syncPassword">WebDAVパスワード（保存しません）</label><input id="syncPassword" type="password" autocomplete="off" />
+<label for="syncPassphrase">同期データ暗号化の合言葉（12文字以上）</label><input id="syncPassphrase" type="password" autocomplete="off" />
+<button id="syncStartBtn" type="button">認証して同期開始（アプリ起動中）</button><button id="syncStopBtn" type="button">同期を停止</button>
+<p id="syncStatus" class="note" aria-live="polite">未接続。保存先への自動接続は行いません。</p></div><button id="storageBtn">端末ストレージを診断</button>
+        <button id="healthBtn" type="button">保存動画の整合性を診断</button>
+        <p id="healthStatus" class="note" aria-live="polite">保存動画の不整合を確認できます。診断だけでは削除しません。</p>
+        <button id="repairCopiesBtn" type="button" hidden>保存フラグだけ修復（動画は削除しない）</button><button id="clearMediaBtn" type="button">端末保存した動画本体だけ削除</button><p class="note" id="importErrors" aria-live="polite"></p><button id="persistBtn" type="button">保存領域の保護を要求</button><button id="updateBtn" type="button">アプリの更新を確認</button><p class="note" id="storageStatus" aria-live="polite"></p><input id="backupFile" type="file" accept=".json,application/json" hidden /><p class="note" id="sourceNote"></p><p class="note">チェックを付けて端末内保存した動画は再起動後も選択不要ですが、iOSの保存容量制限・自動削除・アプリデータ消去の対象になり得ます。元の動画を別途保管してください。</p><p class="note">本アプリは個人管理用です。外部サイトの動画抽出、DRM解除、無許可の自動取得は行いません。</p></div></section>
   </main>
   <nav class="tabbar" aria-label="メインナビゲーション"><button class="tab active" data-view="home"><span>⌂</span>ホーム</button><button class="tab" data-view="favorites"><span>♡</span>お気に入り</button><button class="tab" data-view="continue"><span>▶</span>再生履歴</button><button class="tab" data-view="duplicates"><span>≡</span>重複</button><button class="tab" data-view="settings"><span>⚙</span>設定</button></nav>
   <dialog id="editDialog" class="sheet"><form id="editForm" method="dialog"><div class="sheet-head"><h2 id="dialogTitle">作品を追加</h2><button value="cancel" formnovalidate class="close" aria-label="閉じる">×</button></div><label>タイトル<input name="title" required maxlength="300" /></label><label>品番<input name="code" maxlength="64" /></label><label>出演者（カンマ区切り）<input name="performers" maxlength="400" /></label><label>登録元<select name="provider"><option value="local">端末内</option><option value="licensed">許可済み動画URL</option><option value="peach">Peach</option><option value="missav">MISSAV</option><option value="javdb">JavDB</option><option value="jable">Jable</option><option value="ro85">85ro</option></select></label><label>参照URL（HTTPSのみ）<input name="referenceURL" inputmode="url" placeholder="https://..." maxlength="2048" /></label><div class="sheet-actions"><button type="submit" value="save" class="primary">保存</button><button type="button" id="deleteBtn" class="danger" hidden>削除</button></div></form></dialog>
-  <dialog id="playerDialog" class="player-sheet"><div class="player-head"><span id="playerTitle"></span><button class="close" id="playerClose" aria-label="再生画面を閉じる">×</button></div><video id="player" controls playsinline preload="metadata"><track id="subtitleTrack" kind="subtitles" srclang="ja" label="日本語" hidden /></video><div id="subtitleTracks" hidden></div><div class="player-actions"><button id="rewind">−10秒</button><button id="forward">+10秒</button><button id="speed">1.0倍</button><button id="fullScreen">全画面</button><button id="pip">PiP</button><button id="loadSubtitle">字幕(.vtt)</button></div><p id="playerHelp" class="note"></p></dialog>
-  <input type="file" id="videoFile" accept="video/*,.mp4,.mov,.m4v,.webm" multiple hidden /><input type="file" id="subtitleFile" accept=".vtt,text/vtt" hidden />
+  <dialog id="playerDialog" class="player-sheet"><div class="player-head"><span id="playerTitle"></span><button class="close" id="playerClose" aria-label="再生画面を閉じる">×</button></div><video id="player" controls playsinline preload="metadata"><track id="subtitleTrack" kind="subtitles" srclang="ja" label="日本語" hidden /></video><iframe id="embeddedPlayer" title="許可された外部埋め込みプレイヤー" hidden sandbox="allow-scripts allow-same-origin allow-presentation" referrerpolicy="no-referrer" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe><div id="subtitleTracks" hidden></div><div class="player-actions"><button id="rewind">−10秒</button><button id="forward">+10秒</button><button id="speed">1.0倍</button><button id="fullScreen">全画面</button><button id="pip">PiP</button><button id="loadSubtitle">字幕(.vtt)</button></div><p id="playerHelp" class="note"></p><a id="embeddedSourceLink" class="embed-source-link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>元サイトで開く</a></dialog>
+  <input type="file" id="catalogFile" accept=".json,application/json" hidden /><input type="file" id="videoFile" accept="video/*,.mp4,.mov,.m4v,.webm" multiple hidden /><input type="file" id="subtitleFile" accept=".vtt,text/vtt" hidden />
   <div id="updateNotice" class="update-notice" hidden><span>新しいバージョンを利用できます。再生を停止して更新してください。</span><button type="button" id="reloadApp">更新する</button></div>
   <div role="status" id="toast" class="toast" aria-live="polite"></div>
   <script src="./core.js" defer></script>
@@ -63,6 +86,11 @@
   <script src="./stats.js" defer></script>
   <script src="./provider-live.js" defer></script>
   <script src="./catalog-model.js" defer></script>
+  <script src="./catalog-import.js" defer></script>
+  <script src="./catalog-harvest.js" defer></script>
+  <script src="./library-health.js" defer></script>
+  <script src="./full-backup.js" defer></script>
+  <script src="./cloud-sync.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>
