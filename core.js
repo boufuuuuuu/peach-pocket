@@ -5,7 +5,7 @@
   else root.PeachCore = core;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const PROVIDERS = Object.freeze({local:'端末内',licensed:'許可済みURL',peach:'Peach',missav:'MISSAV',javdb:'JavDB',jable:'Jable',ro85:'85ro',njavtv:'NJAVTV',tktube:'TKTube CB',external:'外部サイト'});
+  const PROVIDERS = Object.freeze({local:'端末内',licensed:'許可済みURL',peach:'Peach',missav:'MISSAV',sextb:'SEXTB',javdatabase:'JAVDATABASE',javlibrary:'JAVLIBRARY',fanza:'FANZA',dmm:'DMM',javdb:'JavDB',jable:'Jable',ro85:'85ro',njavtv:'NJAVTV',tktube:'TKTube CB',external:'外部サイト'});
   const HOSTS = Object.freeze({missav:['missav.ws','missav.ai'],javdb:['javdb.com'],jable:['jable.tv'],ro85:['85ro.com'],njavtv:['njavtv.com'],tktube:['tktube-cb.com']});
   const clean = (v, max=300) => String(v ?? '').slice(0, max).trim();
   const norm = v => clean(v, 64).toUpperCase().replace(/[^A-Z0-9]/g, '');

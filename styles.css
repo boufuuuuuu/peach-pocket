@@ -91,3 +91,9 @@
 .javinfo-thumb{width:82px;height:106px;object-fit:cover;border-radius:9px;flex-shrink:0;background:#363546}
 .live-info{min-width:0;overflow-wrap:anywhere}
 .clear-history{font-size:11px;color:var(--muted);padding:6px 9px;background:transparent;border:1px solid var(--line);border-radius:8px}
+
+/* v1.9.7 search provider selection and direct playback controls */
+.javinfo-panel select{background:#333341;color:var(--text);border:1px solid #68606d;border-radius:10px;min-height:44px;padding:8px;max-width:100%;width:100%}
+#manualStreamPanel{margin-top:8px}
+#manualStreamPanel input:not([type=checkbox]){min-width:0;width:100%;box-sizing:border-box}
+#manualStreamPanel .live-primary{width:100%}
