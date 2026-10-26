@@ -44,3 +44,31 @@
 #harvestStatus{white-space:pre-line}
 
 .embed-source-link:not([hidden]){display:inline-block;padding:10px 12px;margin-top:10px;border-radius:8px;color:#171019;background:var(--accent);text-decoration:none;font-size:13px;font-weight:700}
+
+/* v1.9.1: separate external visits from verified playback */
+.external-quick{margin:10px 0 14px;background:var(--surface);border:1px solid var(--line);padding:11px 13px;border-radius:14px}
+.external-quick summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--accent)}
+.external-quick form{display:grid;gap:10px;margin-top:12px}
+.external-quick label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.external-quick .external-checkbox{display:flex;gap:8px;align-items:center}
+.external-quick .external-checkbox input{width:auto}
+.external-quick button{background:var(--accent);color:#241b22;border:0;border-radius:10px;padding:12px;font-weight:800}
+.external-visit-label{font-size:10px;color:var(--accent);overflow-wrap:anywhere;margin-bottom:7px;line-height:1.5}
+
+/* v1.9.2: small-screen accessible save workflow */
+.save-media-box{padding:12px;display:grid;gap:9px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.save-media-box label{font-size:12px;font-weight:700}.save-media-box input[type=url]{width:100%;padding:12px;background:var(--bg);color:var(--text);border-radius:9px;border:1px solid var(--line)}
+.save-media-box button{min-height:44px;padding:10px;border-radius:10px;border:1px solid var(--line);background:#343747;color:var(--text)}
+.save-media-box .save-buttons{display:flex;gap:7px}.save-media-box #saveDirectMedia{background:var(--accent);color:#211923;font-weight:750;flex:1}.save-media-box #saveDirectMedia:disabled{opacity:.5}
+.save-media-box #cancelDirectMedia{background:#614452}.save-target{font-weight:700;color:var(--accent);font-size:12px;overflow-wrap:anywhere}.secondary-controls{flex-wrap:wrap}.secondary-controls button{min-height:28px}
+
+/* v1.9.4 javinfo MISSAV search; iPhone-first, no account credentials saved. */
+.javinfo-panel{background:linear-gradient(145deg,#27202c,#1c1f29);border:1px solid #745164;border-radius:16px;padding:15px;margin:16px 0 8px;display:grid;gap:9px}
+.javinfo-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.javinfo-heading h2{font-size:17px;margin:0}
+.javinfo-panel label{font-size:12px;font-weight:650}.javinfo-search-line{display:grid;grid-template-columns:minmax(0,1fr) 76px;gap:7px}
+.javinfo-search-line button{background:var(--accent);color:#221821;border:0;border-radius:11px;font-weight:800}
+.javinfo-panel input{min-height:44px}.javinfo-consent{display:flex;align-items:flex-start;gap:8px;line-height:1.6;font-weight:400!important}
+.javinfo-consent input{width:20px;min-height:20px;height:20px;flex:0 0 20px;accent-color:var(--accent)}
+.javinfo-result-actions{display:flex;flex-wrap:wrap;gap:8px}.javinfo-result-actions button,.javinfo-result-actions a{border-radius:10px;background:#3a3b4b;color:#fff;border:1px solid #626476;padding:9px 10px;font-size:12px;text-decoration:none;min-height:38px}
+.javinfo-result-actions .javinfo-play{background:var(--accent);border:0;color:#281722;font-weight:800}
+.javinfo-result-actions button:disabled{opacity:.45}

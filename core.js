@@ -5,8 +5,8 @@
   else root.PeachCore = core;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const PROVIDERS = Object.freeze({local:'端末内',licensed:'許可済みURL',peach:'Peach',missav:'MISSAV',javdb:'JavDB',jable:'Jable',ro85:'85ro'});
-  const HOSTS = Object.freeze({missav:['missav.ws','missav.ai'],javdb:['javdb.com'],jable:['jable.tv'],ro85:['85ro.com']});
+  const PROVIDERS = Object.freeze({local:'端末内',licensed:'許可済みURL',peach:'Peach',missav:'MISSAV',javdb:'JavDB',jable:'Jable',ro85:'85ro',njavtv:'NJAVTV',tktube:'TKTube CB',external:'外部サイト'});
+  const HOSTS = Object.freeze({missav:['missav.ws','missav.ai'],javdb:['javdb.com'],jable:['jable.tv'],ro85:['85ro.com'],njavtv:['njavtv.com'],tktube:['tktube-cb.com']});
   const clean = (v, max=300) => String(v ?? '').slice(0, max).trim();
   const norm = v => clean(v, 64).toUpperCase().replace(/[^A-Z0-9]/g, '');
   function isPublicHost(h) {
@@ -63,7 +63,10 @@
       fileFingerprint:/^sha256-sampled-v1:[a-f0-9]{64}:[0-9]{1,13}$/.test(String(src.fileFingerprint||''))?src.fileFingerprint:'',
       watchCount:Math.max(0,Math.min(1000000,Number(src.watchCount)||0)),
       watchedSeconds:Math.max(0,Math.min(1e10,Number(src.watchedSeconds)||0)),
-      lastPlayedAt:/^\d{4}-\d\d-\d\dT/.test(String(src.lastPlayedAt||''))?clean(src.lastPlayedAt,40):''
+      lastPlayedAt:/^\d{4}-\d\d-\d\dT/.test(String(src.lastPlayedAt||''))?clean(src.lastPlayedAt,40):'',
+      // External links: a page open is never counted as a confirmed video play.
+      externalOpenCount:Math.max(0,Math.min(1000000,Math.floor(Number(src.externalOpenCount)||0))),
+      lastExternalOpenedAt:/^\d{4}-\d\d-\d\dT/.test(String(src.lastExternalOpenedAt||''))?clean(src.lastExternalOpenedAt,40):''
     };
   }
   function duplicateGroups(items) {

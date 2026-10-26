@@ -36,7 +36,8 @@
    isFavorite:Boolean(state.isFavorite),isWatched:Boolean(state.isWatched),
    lastPosition:state.lastPosition||0,duration:state.duration||0,
    watchCount:found?.watchCount||0,watchedSeconds:found?.watchedSeconds||0,
-   lastPlayedAt:found?.lastPlayedAt||'',hasLocalCopy:Boolean(found?.hasLocalCopy)};
+   lastPlayedAt:found?.lastPlayedAt||'',hasLocalCopy:Boolean(found?.hasLocalCopy),
+   externalOpenCount:found?.externalOpenCount||0,lastExternalOpenedAt:found?.lastExternalOpenedAt||''};
   // Never overwrite a user's title or cast while refreshing the catalog.
   if(found){source.title=found.title;source.performers=found.performers?.length?found.performers:result.performers;}
   return Core.canonical(source,genId);

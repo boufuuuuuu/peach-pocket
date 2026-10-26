@@ -47,6 +47,17 @@
    if(!isVideo(file))throw Error(file?.size>MAX_VIDEO_BYTES?'動画が1GBを超えています。現在の保存方式では登録できません':'MP4・MOV・WebMなどの動画ファイルを選択してください');
    await transaction(db,'readwrite',s=>s.put({id,blob:file,name:String(file.name||'video'),size:file.size,type:file.type||'',fingerprint:finger,storedAt:new Date().toISOString()}));
  }
+ async function putWithRecord(db,record,file,finger=''){
+   if(!record?.id||!isVideo(file))throw Error('保存対象が正しくありません');
+   return new Promise((resolve,reject)=>{
+     let tx;try{tx=db.transaction(['items','media'],'readwrite');
+       tx.objectStore('media').put({id:record.id,blob:file,name:String(file.name||'video'),size:file.size,type:file.type||'',fingerprint:finger,storedAt:new Date().toISOString()});
+       tx.objectStore('items').put({...record,hasLocalCopy:true,fileFingerprint:finger});
+     }catch(e){reject(e);return;}
+     tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error||Error('保存領域の容量不足'));
+     tx.onabort=()=>reject(tx.error||Error('動画保存が中断されました'));
+   });
+ }
  async function removeWithRecord(db,id){return new Promise((resolve,reject)=>{
    let tx;try{
      tx=db.transaction(['items','media','thumbnails'],'readwrite');
@@ -101,5 +112,5 @@
  }
  async function remove(db,id){return transaction(db,'readwrite',s=>s.delete(id));}
  async function keys(db){return request(db.transaction('media','readonly').objectStore('media').getAllKeys());}
- return {MAX_VIDEO_BYTES,SAMPLE_BYTES,isVideo,fileNameToMeta,prettyBytes,fingerprint,put,get,remove,removeWithRecord,keys,getThumbnail,putThumbnail,mediaMetadata,thumbnailKeys,matchExisting,captureThumbnail};
+ return {MAX_VIDEO_BYTES,SAMPLE_BYTES,isVideo,fileNameToMeta,prettyBytes,fingerprint,put,putWithRecord,get,remove,removeWithRecord,keys,getThumbnail,putThumbnail,mediaMetadata,thumbnailKeys,matchExisting,captureThumbnail};
 });

@@ -7,13 +7,18 @@ const Live = PeachLive;
 const Catalog = PeachCatalog;
 const CatalogImport = PeachCatalogImport;
 const Harvest = PeachHarvest;
+const MissavCompat = PeachMissavCompat;
+const Javinfo = PeachJavinfo;
 const Health = PeachHealth;
 const FullBackup = PeachFullBackup;
 const CloudSync = PeachCloudSync;
+const External = PeachExternal;
+const Download = PeachDownload;
 let cloudSession=null,cloudBusy=false;
 const DATABASE='peach-pocket-db1';
 const $=id=>document.getElementById(id);
 const objUrls=new Map();
+const volatileFiles=new Map();
 const thumbnailURLs=new Map();
 const thumbnailJobs=new Map();
 const thumbnailFailed=new Set();
@@ -21,13 +26,92 @@ let db,records=[],activeId=null,currentId=null,selectedFileItem=null,lastSavedAt
 let lastRecordedPosition=null, followNames=[], subtitleObjectURL=null, playingUrl=null;
 let liveSettings={api:{missav:'',javdb:'',jable:'',ro85:''},mediaOrigins:[],coverOrigins:[],autoSearch:true};
 let liveCatalogRows=[],offlineCatalogRows=[],autoSearchTimer=null,followCheckBusy=false,healthReport=null;
-let liveSearchRun=0,harvestBusy=false,embedPlaying=false;
+let liveSearchRun=0,harvestBusy=false,embedPlaying=false,embeddedCurrentId=null;
+let saveTargetId=null, directDownloadAbort=null;
+let javinfoResults=[],javinfoBusy=false,playSession=0,playingRecordedSession=-1,playbackBegan=false;
 const uid=()=>globalThis.crypto?.randomUUID?.()||`id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const elem=(tag,cls,txt)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n;};
 function toast(message){const n=$('toast');n.textContent=message;n.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>n.classList.remove('show'),3400);}
 function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DATABASE,4);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('items'))req.result.createObjectStore('items',{keyPath:'id'});if(!req.result.objectStoreNames.contains('meta'))req.result.createObjectStore('meta',{keyPath:'key'});if(!req.result.objectStoreNames.contains('media'))req.result.createObjectStore('media',{keyPath:'id'});if(!req.result.objectStoreNames.contains('thumbnails'))req.result.createObjectStore('thumbnails',{keyPath:'id'});};req.onerror=()=>reject(req.error);req.onsuccess=()=>resolve(req.result);});}
 function readMeta(key){return new Promise((resolve,reject)=>{const req=db.transaction('meta').objectStore('meta').get(key);req.onsuccess=()=>resolve(req.result?.value);req.onerror=()=>reject(req.error);});}
 function writeMeta(key,value){return new Promise((resolve,reject)=>{const tx=db.transaction('meta','readwrite');tx.objectStore('meta').put({key,value});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
+// javinfo search is user-initiated only. The key is held only in the password input,
+// never saved to IndexedDB, backups, logs or published GitHub Pages assets.
+function javinfoCredentials(){return Javinfo.apiKey($('javinfoKey').value);}
+function javinfoStatus(message){$('javinfoStatus').textContent=message;}
+async function saveJavinfoItem(info){
+  const found=records.find(r=>r.provider==='missav'&&norm(r.code)===norm(info.code));
+  if(found){
+    const row={...found,title:found.title==='名称未設定'?info.title:found.title,
+      performers:found.performers?.length?found.performers:info.performers,
+      referenceURL:found.referenceURL||info.referenceURL,
+      coverURL:found.coverURL||info.coverURL,publishedAt:found.publishedAt||info.publishedAt,
+      duration:found.duration||info.duration||0};
+    await store(row);return records.find(r=>r.id===found.id)||row;
+  }
+  // Preserve linked favorites and watched flags from a previously registered
+  // source of the same DVD id without duplicating its playback-count statistics.
+  const linked=records.find(r=>r.code&&norm(r.code)===norm(info.code));
+  await store({...info,id:uid(),isFavorite:Boolean(linked?.isFavorite),isWatched:Boolean(linked?.isWatched),
+    lastPosition:linked?.lastPosition||0,progressPercent:linked?.progressPercent||0});
+  return records.find(r=>r.provider==='missav'&&norm(r.code)===norm(info.code));
+}
+function renderJavinfoResults(){
+  const parent=$('javinfoResults');parent.replaceChildren();
+  if(!javinfoResults.length)return;
+  for(const entry of javinfoResults){
+    const card=elem('article','live-result');
+    const header=elem('div','live-result-heading');
+    const meta=elem('div','live-info');
+    meta.append(elem('strong','',entry.title),elem('small','',entry.code||'品番なし'));
+    if(entry.performers?.length)meta.append(elem('small','',entry.performers.join('・')));
+    if(entry.publishedAt)meta.append(elem('small','',entry.publishedAt));
+    header.append(meta);card.append(header);
+    const actions=elem('div','javinfo-result-actions');
+    const save=elem('button','','作品を保存');
+    save.onclick=async()=>{try{await saveJavinfoItem(entry);toast('ライブラリに保存しました');}
+      catch(e){javinfoStatus('保存に失敗: '+e.message);}};actions.append(save);
+    const fav=elem('button','','♡ お気に入り');
+    fav.onclick=async()=>{try{const row=await saveJavinfoItem(entry);await syncGroupState(row,{isFavorite:true});toast('お気に入りに登録しました');}
+      catch(e){javinfoStatus('お気に入り登録に失敗: '+e.message);}};actions.append(fav);
+    const playBtn=elem('button','javinfo-play','▶ 詳細を取得して再生');
+    playBtn.disabled=!entry.code;
+    playBtn.onclick=()=>playJavinfoMovie(entry).catch(e=>javinfoStatus('再生準備に失敗: '+e.message));
+    actions.append(playBtn);
+    if(entry.referenceURL){const link=elem('a','','↗ 元サイト');link.href=entry.referenceURL;link.target='_blank';link.rel='noopener noreferrer';link.referrerPolicy='no-referrer';link.addEventListener('click',()=>{void markExternalOpen(entry).catch(()=>{});});actions.append(link);}
+    card.append(actions);parent.append(card);
+  }
+}
+async function runJavinfoSearch(){
+  if(javinfoBusy)return;
+  const key=javinfoCredentials(),term=Javinfo.queryText($('javinfoSearch').value);
+  javinfoBusy=true;$('javinfoSearchBtn').disabled=true;
+  javinfoStatus('MISSAVの作品情報を検索中…（APIへ1回リクエスト）');
+  try{
+    const result=await Javinfo.search(term,key);
+    javinfoResults=result;renderJavinfoResults();
+    javinfoStatus(result.length?`MISSAVから${result.length}件を取得。作品を保存するか、詳細を取得して再生できます。`:'該当作品なし。品番や検索語を変えてください。');
+  }catch(e){javinfoResults=[];renderJavinfoResults();javinfoStatus('検索できません：'+e.message);}
+  finally{javinfoBusy=false;$('javinfoSearchBtn').disabled=false;}
+}
+async function playJavinfoMovie(item){
+  if(javinfoBusy)return;
+  if(!$('javinfoRights').checked)throw Error('配信元の利用条件を確認し、再生権限のあるストリームだけを利用するチェックを入れてください');
+  const key=javinfoCredentials();
+  const code=Javinfo.dvdCode(item.code);
+  javinfoBusy=true;$('javinfoSearchBtn').disabled=true;
+  javinfoStatus(`${code} の詳細と再生URLを確認中…（APIへ1回リクエスト）`);
+  try{
+    const detail=await Javinfo.movie(code,key);
+    if(!detail){javinfoStatus('作品詳細がありません');return;}
+    const row=await saveJavinfoItem({...item,...detail.metadata});
+    if(!detail.hls){javinfoStatus(`${code}: HLS動画URLがありません。作品情報は保存しました。`);return;}
+    // A URL in API metadata alone is not proof of unrestricted access. We make
+    // one normal native HLS playback attempt, without injected headers or relay.
+    play(row,detail.hls);
+    javinfoStatus(`${code}: iPhoneの動画プレイヤーへHLSを渡しました。再生開始時に履歴を記録します。再生できない場合は配信元の制限を確認してください。`);
+  }finally{javinfoBusy=false;$('javinfoSearchBtn').disabled=false;}
+}
 function renderCatalogStatus(){
  $('offlineCatalogStatus').textContent=`端末内カタログ ${offlineCatalogRows.length} 件（動画本体なし・再生許可なし）`;
 }
@@ -46,6 +130,32 @@ async function importOfflineCatalog(file){
  offlineCatalogRows=next;renderCatalogStatus();
  toast(`作品情報を${parsed.length}件取り込みました`);
  if($('search').value.trim().length>=2)await runLiveSearch(null,{quiet:false});
+}
+async function saveMissavCompatibility(payload){
+ const parsed=MissavCompat.parse(payload,liveSettings.coverOrigins);
+ const merged=CatalogImport.merge(offlineCatalogRows,parsed);
+ if(!confirm(`MISSAV作品情報 ${parsed.length}件を追加します。端末内カタログ合計${merged.length}件。保存動画・お気に入り・視聴履歴は変更しません。続けますか？`))return 0;
+ await writeMeta('offlineCatalogRows',merged);
+ offlineCatalogRows=merged;
+ renderCatalogStatus();renderLiveGroups();
+ $('missavCompatStatus').textContent=`MISSAV作品情報${parsed.length}件を取り込みました。端末内カタログ合計${merged.length}件。`;
+ toast(`MISSAV作品情報${parsed.length}件を登録しました`);
+ if($('search').value.trim().length>=2)await runLiveSearch(null,{quiet:false});
+ return parsed.length;
+}
+async function importMissavFile(file){
+ if(!file||file.size>MissavCompat.MAX_BYTES)throw Error('2MB以下のJSONファイルを選択してください');
+ return saveMissavCompatibility(JSON.parse(await file.text()));
+}
+async function fetchMissavCompatibility(){
+ const button=$('missavCompatFetchBtn');button.disabled=true;
+ const label=$('missavCompatStatus');label.textContent='HTTPS APIへ接続しています…';
+ try{
+  // auth-key is read only at invocation time. Never persist this secret in IndexedDB.
+  const data=await MissavCompat.request($('missavCompatAPI').value,{authKey:$('missavCompatAuth').value});
+  await saveMissavCompatibility(data);
+ }catch(err){label.textContent=`取得できません: ${err.message}。CORS・アクセス権限・JSON形式を確認してください。`;}
+ finally{$('missavCompatAuth').value='';button.disabled=false;}
 }
 async function inspectLibrary(){
  const [media,thumbs]=await Promise.all([Media.mediaMetadata(db),Media.thumbnailKeys(db)]);
@@ -155,7 +265,8 @@ function renderLiveGroup(group){
  card.append(actions);
  const links=elem('div','live-result-actions');for(const source of group.sources){
   if(!source.referenceURL)continue;
-  const a=elem('a','',`${PROVIDERS[source.provider]}の元ページ`);a.href=source.referenceURL;a.target='_blank';a.rel='noopener noreferrer';a.referrerPolicy='no-referrer';links.append(a);
+  const a=elem('a','',`${PROVIDERS[source.provider]}の元ページ（開いた履歴に記録）`);a.href=source.referenceURL;a.target='_blank';a.rel='noopener noreferrer';a.referrerPolicy='no-referrer';
+  a.addEventListener('click',()=>{void markExternalOpen(source).catch(e=>toast('履歴の保存に失敗: '+e.message));});links.append(a);
  }card.append(links);return card;
 }
 function renderLiveGroups(){
@@ -380,6 +491,24 @@ function saveOne(item){return new Promise((resolve,reject)=>{const tx=db.transac
 function deleteOne(id){return new Promise((resolve,reject)=>{const tx=db.transaction('items','readwrite');tx.objectStore('items').delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
 async function reload(){records=(await readAll()).map(row=>canonical(row,uid)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));render();}
 async function store(item){const r=canonical({...item,updatedAt:new Date().toISOString()},uid);await saveOne(r);await reload();}
+// Never count external page navigation as a confirmed playback or watched time.
+async function markExternalOpen(source){
+ const url=safeURL(source.referenceURL,source.provider);if(!url)throw Error('有効な参照URLがありません');
+ const found=records.find(r=>r.provider===source.provider&&r.referenceURL===url);
+ const row=found||Catalog.mergeWithExisting(source,records,uid);
+ await store(External.markOpened({...row,referenceURL:url}));
+}
+async function saveManualExternal(ev){
+ ev.preventDefault();const urlRaw=$('externalURL').value.trim();const provider=External.providerFromURL(urlRaw),url=safeURL(urlRaw,provider);
+ if(!url){toast('公開HTTPSの作品ページURLを入力してください');return;}
+ const found=records.find(r=>r.provider===provider&&r.referenceURL===url);
+ const title=clean($('externalTitle').value,300)||External.suggestedTitle(url);
+ const code=clean($('externalCode').value,64);
+ const row=found?{...found,title:found.title==='名称未設定'?title:found.title,code:found.code||code}:
+    {id:uid(),provider,referenceURL:url,title,code,isFavorite:$('externalFavorite').checked};
+ await store(row);$('externalQuickForm').reset();$('externalQuickPanel').open=false;
+ toast(found?'登録済みリンクを確認しました':'外部作品を登録しました。カードからサイトを開けます');
+}
 async function backfillLegacyFingerprints(limit=12){
  let count=0;
  for(const r of records){
@@ -415,20 +544,21 @@ async function thumbnailURLFor(record){
  })();thumbnailJobs.set(record.id,task);return task;
 }
 function bindThumbnail(cover,record){
- if(record.provider!=='local')return;
+ if(!record.hasLocalCopy)return;
  const img=elem('img','cover-image');img.alt=`${record.title} の動画サムネイル`;img.loading='lazy';
  thumbnailURLFor(record).then(url=>{if(url && cover.isConnected){img.src=url;cover.prepend(img);}}).catch(()=>{});
 }
 function renderCards(id,list){const parent=$(id);parent.replaceChildren();if(!list.length){const none=elem('div','empty','作品がありません。右上の＋で登録、または「動画を追加」から始められます。');parent.append(none);return;}
  for(const r of list){const card=elem('article','item');const cover=elem('div','cover');const thumb=imageFor(r.coverURL,r.title);if(thumb)cover.append(thumb);else cover.append(elem('span','film','▶'));bindThumbnail(cover,r);cover.append(elem('span','provider',PROVIDERS[r.provider]));card.append(cover);const body=elem('div','item-body');body.append(elem('div','item-title',r.title),elem('div','code',r.code||r.performers.join('・')||'作品情報'));
+ if(id==='visits'){const when=External.latestAt(r);const label=r.lastExternalOpenedAt===when?'外部ページを開いた（再生確認なし）':'アプリ内で再生';const date=new Date(when);body.append(elem('div','external-visit-label',`${label} · ${Number.isNaN(date.getTime())?'':date.toLocaleString('ja-JP')}`));}
  const bar=elem('div','progress');const fill=elem('div');fill.style.width=`${Math.min(100,r.duration?Math.max(0,r.lastPosition/r.duration*100):r.progressPercent)}%`;bar.append(fill);body.append(bar);
- const controls=elem('div','controls');const action=elem('button','play',r.provider==='local'?(r.hasLocalCopy?'▶ 保存動画を再生':objUrls.has(r.id)?'▶ 再生':'動画を選ぶ'):r.provider==='licensed'||Catalog.safePlayable(r,liveSettings.mediaOrigins)||Catalog.safeEmbed(r,liveSettings.mediaOrigins)?'▶ アプリ内で再生':'参照ページ');action.addEventListener('click',()=>start(r));const fav=elem('button',`heart${r.isFavorite?' on':''}`,r.isFavorite?'♥ 保存済み':'♡ 保存');fav.addEventListener('click',()=>syncGroupState(r,{isFavorite:!r.isFavorite}).catch(e=>toast(e.message)));controls.append(action,fav);body.append(controls);
- const small=elem('div','secondary-controls');const edit=elem('button','', '編集');edit.addEventListener('click',()=>editItem(r));const watched=elem('button','',r.isWatched?'未視聴へ':'視聴済み');watched.addEventListener('click',()=>syncGroupState(r,{isWatched:!r.isWatched}).catch(e=>toast(e.message)));small.append(edit,watched);body.append(small);card.append(body);parent.append(card);
+ const controls=elem('div','controls');const action=elem('button','play',r.hasLocalCopy?'▶ 保存動画を再生':r.provider==='local'?(objUrls.has(r.id)?'▶ 再生':'動画を選ぶ'):Catalog.safePlayable(r,liveSettings.mediaOrigins)||Catalog.safeEmbed(r,liveSettings.mediaOrigins)?'▶ アプリ内で再生':r.provider==='missav'&&r.code?'▶ MISSAV再生':'↗ 外部で開く');action.addEventListener('click',()=>start(r));const fav=elem('button',`heart${r.isFavorite?' on':''}`,r.isFavorite?'♥ 保存済み':'♡ 保存');fav.addEventListener('click',()=>syncGroupState(r,{isFavorite:!r.isFavorite}).catch(e=>toast(e.message)));controls.append(action,fav);body.append(controls);
+ const small=elem('div','secondary-controls');const edit=elem('button','', '編集');edit.addEventListener('click',()=>editItem(r));const watched=elem('button','',r.isWatched?'未視聴へ':'視聴済み');watched.addEventListener('click',()=>syncGroupState(r,{isWatched:!r.isWatched}).catch(e=>toast(e.message)));small.append(edit,watched);const local=elem('button','',r.hasLocalCopy?'⇩ ファイルへ書出':'↓ 動画を保存');local.addEventListener('click',()=>r.hasLocalCopy?exportMediaFile(r).catch(e=>toast('書出に失敗: '+e.message)):openSaveMedia(r));small.append(local);body.append(small);card.append(body);parent.append(card);
  }}
-function render(){const rows=allVisible();$('count').textContent=`${rows.length} 件`;renderCards('library',rows);renderCards('favorites',rows.filter(r=>r.isFavorite));renderCards('continues',rows.filter(r=>r.lastPosition>0&&!r.isWatched));const d=duplicateGroups(rows),fdups=fileDuplicateGroups(rows);$('duplicateCount').textContent=`同じ品番 ${d.length}組 / 同一動画候補 ${fdups.length}組 / 複数提供元 ${crossProviderGroups(rows).length}組`;
+function render(){const rows=allVisible();$('count').textContent=`${rows.length} 件`;renderCards('library',rows);renderCards('favorites',rows.filter(r=>r.isFavorite));renderCards('continues',rows.filter(r=>r.lastPosition>0&&!r.isWatched));renderCards('visits',External.recent(rows));const d=duplicateGroups(rows),fdups=fileDuplicateGroups(rows);$('duplicateCount').textContent=`同じ品番 ${d.length}組 / 同一動画候補 ${fdups.length}組 / 複数提供元 ${crossProviderGroups(rows).length}組`;
  const area=$('duplicates');area.replaceChildren();if(!d.length&&!fdups.length)area.append(elem('p','note','重複候補はまだありません。'));
  for(const group of fdups){const n=elem('div','duplicate-row');n.append(elem('strong','','動画内容が一致する可能性'),elem('span','',group.map(x=>x.title).join(' / ')));area.append(n);}
- const stats=PeachStats.compute(records);$('statsSummary').textContent=`保存動画 ${records.filter(x=>x.hasLocalCopy).length}本 · 視聴済み ${stats.watched}件 · お気に入り ${stats.favorites}件 · 再生回数 ${stats.plays}回 · 累計 ${stats.watchHours}時間`;
+ const stats=PeachStats.compute(records);$('statsSummary').textContent=`保存動画 ${records.filter(x=>x.hasLocalCopy).length}本 · 視聴済み ${stats.watched}件 · お気に入り ${stats.favorites}件 · アプリ内再生 ${stats.plays}回 · 外部ページ訪問 ${records.reduce((t,r)=>t+(r.externalOpenCount||0),0)}回 · 累計 ${stats.watchHours}時間`;
  const followed=records.filter(r=>r.performers.some(n=>followNames.includes(n)));
  $('followedWorks').replaceChildren();for(const r of followed.slice(0,15)){$('followedWorks').append(elem('div','following-result',`${r.code||r.title} · ${r.performers.filter(n=>followNames.includes(n)).join('・')}`));}
  if(!followed.length)$('followedWorks').append(elem('p','note','フォロー中の出演者に一致する登録作品はまだありません（自動ネット取得ではありません）。'));
@@ -438,14 +568,20 @@ function render(){const rows=allVisible();$('count').textContent=`${rows.length}
 function setView(name){for(const id of ['home','favorites','continue','duplicates','settings'])$(id+'View').hidden=id!==name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));$('searchPanel').hidden=name==='settings';}
 function editItem(item){activeId=item?.id||null;const f=$('editForm');f.reset();$('dialogTitle').textContent=item?'作品を編集':'作品を追加';if(item){for(const field of ['title','code','provider','referenceURL'])f.elements[field].value=item[field]||'';f.elements.performers.value=item.performers.join('、');}$('deleteBtn').hidden=!item;$('editDialog').showModal();}
 async function start(item){
- currentId=item.id;
- if(item.provider==='local'){
-   try{
-     if(item.hasLocalCopy){const stored=await Media.get(db,item.id);if(stored?.blob){const url=URL.createObjectURL(stored.blob);playingUrl=url;return play(item,url);}}
-     if(objUrls.has(item.id))return play(item,objUrls.get(item.id));
-   }catch(e){toast(`保存済み動画を開けません: ${e.message}`);}
-   selectedFileItem=item.id;$('videoFile').value='';$('videoFile').click();return;
+ // External navigation must not assign the HTMLVideoElement playback record.
+ try{
+   if(item.hasLocalCopy){const stored=await Media.get(db,item.id);if(stored?.blob){const url=URL.createObjectURL(stored.blob);playingUrl=url;return play(item,url);}}
+   if(objUrls.has(item.id))return play(item,objUrls.get(item.id));
+ }catch(e){toast(`保存済み動画を開けません: ${e.message}`);}
+ if(item.provider==='missav' && item.code){
+   if($('javinfoKey').value.trim() && $('javinfoRights').checked){
+     try{return await playJavinfoMovie(item);}catch(e){javinfoStatus(e.message);toast('再生準備に失敗しました');return;}
+   }
+   $('javinfoSearch').value=item.code;
+   $('javinfoKey').focus();$('javinfoHeading').scrollIntoView({block:'start',behavior:'smooth'});
+   toast('MISSAVの再生にはjavinfoキーと再生許可の確認が必要です');return;
  }
+ if(item.provider==='local'){selectedFileItem=item.id;$('videoFile').value='';$('videoFile').click();return;}
  const stream=Catalog.safePlayable(item,liveSettings.mediaOrigins);
  if(stream){play(item,stream);return;}
  const embed=Catalog.safeEmbed(item,liveSettings.mediaOrigins);
@@ -454,9 +590,9 @@ async function start(item){
   try{const url=new URL(item.referenceURL);
     if(liveSettings.mediaOrigins.includes(url.origin)&&/\.(mp4|m4v|mov|webm|m3u8)$/i.test(url.pathname)){play(item,url.href);return;}
   }catch{}
-  toast('許可済み動画URLではないため、元ページを開きます');window.open(item.referenceURL,'_blank','noopener,noreferrer');return;
+  toast('元ページを開きます。開いた履歴を保存します');window.open(item.referenceURL,'_blank','noopener,noreferrer');void markExternalOpen(item).catch(e=>toast('履歴の保存に失敗: '+e.message));return;
  }
- if(item.referenceURL){window.open(item.referenceURL,'_blank','noopener,noreferrer');return;}
+ if(item.referenceURL){window.open(item.referenceURL,'_blank','noopener,noreferrer');void markExternalOpen(item).catch(e=>toast('履歴の保存に失敗: '+e.message));return;}
  toast('参照URLを登録してください');
 }
 function playEmbedded(item,url){
@@ -465,15 +601,26 @@ function playEmbedded(item,url){
  // Cross-origin frame is opaque: playback progress and controls are not accessible.
  const video=$('player');video.pause();video.removeAttribute('src');video.load();video.hidden=true;
  document.querySelector('.player-actions').hidden=true;
- currentId=null;lastRecordedPosition=null;embedPlaying=true;
+ currentId=null;lastRecordedPosition=null;embedPlaying=true;embeddedCurrentId=item.id;
  const frame=$('embeddedPlayer');frame.hidden=false;frame.src=safe;
  const source=$('embeddedSourceLink');source.hidden=!item.referenceURL;if(item.referenceURL)source.href=item.referenceURL;else source.removeAttribute('href');
  $('playerTitle').textContent=item.title;
- $('playerHelp').textContent='配信元がiframe埋め込みを許可した場合にのみ表示されます。ブロック・ログイン要求・再生失敗時は元ページを開いてください。埋め込みプレイヤーでは再生位置を取得できません。';
+ $('playerSaveLocal').hidden=true;$('playerExportFile').hidden=true;$('playerHelp').textContent='配信元がiframe埋め込みを許可した場合にのみ表示されます。ブロック・ログイン要求・再生失敗時は元ページを開いてください。埋め込みプレイヤーでは再生位置を取得できません。';
  $('playerDialog').showModal();
 }
-function play(item,url){embedPlaying=false;$('embeddedSourceLink').hidden=true;const frame=$('embeddedPlayer');frame.hidden=true;frame.removeAttribute('src');$('player').hidden=false;document.querySelector('.player-actions').hidden=false;const now=new Date().toISOString();store({...item,watchCount:item.watchCount+1,lastPlayedAt:now}).catch(()=>{});const video=$('player');video.pause();video.removeAttribute('src');video.load();currentId=item.id;lastRecordedPosition=null;video.src=url;$('playerTitle').textContent=item.title;$('playerHelp').textContent=item.provider==='local'?'動画はサーバーへ送信されません。端末に保存した動画は再起動後も再生できますが、iOS側の容量制限・削除対象となります。':'配信元がブラウザ再生を許可し、iPhoneが形式に対応する場合のみ再生できます。';$('playerDialog').showModal();video.addEventListener('loadedmetadata',function loaded(){video.removeEventListener('loadedmetadata',loaded);if(item.lastPosition>1&&video.duration>item.lastPosition+5)video.currentTime=item.lastPosition;},{once:true});video.play().catch(()=>toast('再生ボタンを押してください'));}
-async function savePosition(){if(loading||!currentId)return;const video=$('player'),time=Number(video.currentTime);if(!Number.isFinite(time)||time<0)return;const record=records.find(r=>r.id===currentId);if(!record)return;const length=Number.isFinite(video.duration)?video.duration:record.duration;
+function play(item,url){embedPlaying=false;$('embeddedSourceLink').hidden=true;const frame=$('embeddedPlayer');frame.hidden=true;frame.removeAttribute('src');$('player').hidden=false;document.querySelector('.player-actions').hidden=false;playSession++;playbackBegan=false;const video=$('player');video.pause();video.removeAttribute('src');video.load();currentId=item.id;lastRecordedPosition=null;$('playerSaveLocal').hidden=Boolean(item.hasLocalCopy);$('playerExportFile').hidden=!item.hasLocalCopy;video.src=url;$('playerTitle').textContent=item.title;$('playerHelp').textContent=item.provider==='local'?'動画はサーバーへ送信されません。端末に保存した動画は再起動後も再生できますが、iOS側の容量制限・削除対象となります。':'配信元がブラウザ再生を許可し、iPhoneが形式に対応する場合のみ再生できます。';$('playerDialog').showModal();video.addEventListener('loadedmetadata',function loaded(){video.removeEventListener('loadedmetadata',loaded);if(item.lastPosition>1&&video.duration>item.lastPosition+5)video.currentTime=item.lastPosition;},{once:true});video.play().catch(()=>toast('再生ボタンを押してください'));}
+async function recordNativePlaying(){
+ if(!currentId||embedPlaying)return;
+ const session=playSession;playbackBegan=true;
+ if(playingRecordedSession===session)return;
+ playingRecordedSession=session;
+ const row=records.find(r=>r.id===currentId);
+ if(!row)return;
+ const updated=canonical({...row,watchCount:(row.watchCount||0)+1,lastPlayedAt:new Date().toISOString(),updatedAt:new Date().toISOString()},uid);
+ try{await saveOne(updated);const i=records.findIndex(r=>r.id===updated.id);if(i>=0)records[i]=updated;render();}
+ catch(e){playingRecordedSession=-1;toast('再生履歴の保存に失敗しました');}
+}
+async function savePosition(){if(loading||!currentId||!playbackBegan)return;const video=$('player'),time=Number(video.currentTime);if(!Number.isFinite(time)||time<0)return;const record=records.find(r=>r.id===currentId);if(!record)return;const length=Number.isFinite(video.duration)?video.duration:record.duration;
  const delta=lastRecordedPosition===null?0:time-lastRecordedPosition;
  lastRecordedPosition=time;
  const updated=canonical({...record,lastPosition:time,duration:length,
@@ -481,7 +628,70 @@ async function savePosition(){if(loading||!currentId)return;const video=$('playe
  progressPercent:length?Math.floor(100*time/length):record.progressPercent,
  isWatched:record.isWatched||(length>0&&time/length>=.95),updatedAt:new Date().toISOString()},uid);const siblings=Catalog.linkedStateUpdates(updated,records,{lastPosition:updated.lastPosition,duration:updated.duration,progressPercent:updated.progressPercent,isWatched:updated.isWatched}).filter(r=>r.id!==updated.id);
  await writeAll([updated,...siblings]);const i=records.findIndex(r=>r.id===currentId);if(i>=0)records[i]=updated;for(const sibling of siblings){const j=records.findIndex(r=>r.id===sibling.id);if(j>=0)records[j]=sibling;}}
-async function closeVideo(){$('embeddedSourceLink').hidden=true;$('embeddedSourceLink').removeAttribute('href');const frame=$('embeddedPlayer');frame.removeAttribute('src');frame.hidden=true;embedPlaying=false;document.querySelector('.player-actions').hidden=false;$('player').hidden=false;const video=$('player');video.pause();try{await savePosition();}catch(err){toast('再生位置を保存できませんでした');}video.removeAttribute('src');video.load();if(playingUrl){URL.revokeObjectURL(playingUrl);playingUrl=null;}if(subtitleObjectURL){URL.revokeObjectURL(subtitleObjectURL);subtitleObjectURL=null;}const tr=$('subtitleTrack');tr.removeAttribute('src');tr.hidden=true;lastRecordedPosition=null;currentId=null;if($('playerDialog').open)$('playerDialog').close();render();}
+async function closeVideo(){$('embeddedSourceLink').hidden=true;$('embeddedSourceLink').removeAttribute('href');const frame=$('embeddedPlayer');frame.removeAttribute('src');frame.hidden=true;embedPlaying=false;embeddedCurrentId=null;$('playerSaveLocal').hidden=false;$('playerExportFile').hidden=false;document.querySelector('.player-actions').hidden=false;$('player').hidden=false;const video=$('player');video.pause();try{await savePosition();}catch(err){toast('再生位置を保存できませんでした');}video.removeAttribute('src');video.load();if(playingUrl){URL.revokeObjectURL(playingUrl);playingUrl=null;}if(subtitleObjectURL){URL.revokeObjectURL(subtitleObjectURL);subtitleObjectURL=null;}const tr=$('subtitleTrack');tr.removeAttribute('src');tr.hidden=true;lastRecordedPosition=null;currentId=null;playbackBegan=false;if($('playerDialog').open)$('playerDialog').close();render();}
+function openSaveMedia(row=null){
+ saveTargetId=row?.id||null;
+ $('saveMediaTarget').textContent=row?`保存先：${row.title}（お気に入り・履歴を維持）`:'保存先：新規作品として登録';
+ $('directMediaStatus').textContent='保存が許可された直接動画ファイル（256MB以下）か、iPhoneのファイルを選択してください。';
+ $('saveMediaPanel').open=true;$('saveMediaPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function attachVideoToRecord(file,id){
+ if(!file) return;
+ if(!Media.isVideo(file))throw Error('動画ファイル（1GB以下）を選択してください');
+ // Preserve the original provider, original page link, favorites and watch history.
+ const old=records.find(r=>r.id===id);
+ if(old?.hasLocalCopy && (await Media.get(db,old.id))?.blob)throw Error('既に動画が保存されています。上書きは行いません');
+ const fp=await Media.fingerprint(file);
+ const other=await Media.matchExisting(db,file,fp,records);
+ if(other&&other.id!==id&&other.hasLocalCopy){toast('同じ動画が別作品に保存されています。既存動画を削除せず、指定作品にも保存します');}
+ const meta=Media.fileNameToMeta(file.name);
+ const next=canonical(old?{...old,fileFingerprint:fp,hasLocalCopy:true}:{id:uid(),...meta,provider:'local',fileFingerprint:fp,hasLocalCopy:true},uid);
+ await Media.putWithRecord(db,next,file,fp);
+ await reload();
+ try{const thumb=await Media.captureThumbnail(file);if(thumb){await Media.putThumbnail(db,next.id,thumb);thumbnailFailed.delete(next.id);const prior=thumbnailURLs.get(next.id);if(prior)URL.revokeObjectURL(prior);thumbnailURLs.delete(next.id);}}catch{}
+ render();return next;
+}
+async function downloadSave(){
+ if(directDownloadAbort)return;
+ if(!$('mediaSaveRights').checked){toast('保存が許可されていることを確認してください');return;}
+ const raw=$('directMediaUrl').value.trim();let url;
+ try{url=Download.validatedUrl(raw);}catch(e){$('directMediaStatus').textContent=e.message;return;}
+ const old=records.find(r=>r.id===saveTargetId);
+ if(old?.hasLocalCopy && (await Media.get(db,old.id))?.blob){toast('既に端末に保存済みです。上書きしません');return;}
+ const ctrl=new AbortController();directDownloadAbort=ctrl;
+ $('saveDirectMedia').disabled=true;$('cancelDirectMedia').hidden=false;
+ $('directMediaStatus').textContent='動画を取得しています…アプリを閉じないでください';
+ try{
+  const file=await Download.fetchVideo(url,{signal:ctrl.signal,onProgress:(done,total)=>{$('directMediaStatus').textContent=`取得中 ${Media.prettyBytes(done)}${total?' / '+Media.prettyBytes(total):''}（保存前の検証中）`;}});
+  const saved=await attachVideoToRecord(file,old?.id||null);
+  $('directMediaStatus').textContent=`端末保存完了：${saved.title}（${Media.prettyBytes(file.size)}）。オフライン再生できます。`;
+  toast('動画を端末内に保存しました');
+ }catch(e){$('directMediaStatus').textContent='保存できません：'+e.message;}
+ finally{directDownloadAbort=null;$('saveDirectMedia').disabled=false;$('cancelDirectMedia').hidden=true;}
+}
+async function exportMediaFile(row){
+ const saved=await Media.get(db,row.id);if(!saved?.blob)throw Error('端末保存した動画がありません');
+ const filename=Download.safeFilename(saved.name||'', 'movie.mp4');
+ const file=new File([saved.blob],filename,{type:saved.blob.type||'video/mp4'});
+ if(navigator.share&&navigator.canShare?.({files:[file]})){
+  try{await navigator.share({files:[file],title:row.title});return;}catch(e){if(e?.name==='AbortError')return;}
+ }
+ const url=URL.createObjectURL(file);try{const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();toast('Safariのダウンロード先を確認してください');}finally{setTimeout(()=>URL.revokeObjectURL(url),60_000);}
+}
+async function savePlayingMedia(){
+ const row=records.find(r=>r.id===currentId);
+ if(!row){toast('再生中の動画がありません');return;}
+ if(row.hasLocalCopy){toast('すでに端末保存済みです');return;}
+ const src=$('player').currentSrc||$('player').src;
+ if(src.startsWith('blob:')){
+  const copy=await Media.get(db,row.id);
+  if(copy?.blob){await store({...row,hasLocalCopy:true});toast('端末に保存済みです');return;}
+  const staged=volatileFiles.get(row.id);if(staged){await attachVideoToRecord(staged,row.id);volatileFiles.delete(row.id);$('playerSaveLocal').hidden=true;$('playerExportFile').hidden=false;toast('再生中の動画を端末に保存しました');return;}
+  await closeVideo();toast('この動画はファイルを選択して保存してください');openSaveMedia(row);return;
+ }
+ try{Download.validatedUrl(src);}catch(e){await closeVideo();toast('この動画は直接保存に対応していません。ファイルから登録してください');openSaveMedia(row);return;}
+ await closeVideo();openSaveMedia(row);$('directMediaUrl').value=src;toast('画面の「保存許可」を確認し、動画URLから端末に保存してください');
+}
 async function chooseFile(file,itemId,autoPlay=true){
  if(!file)return;
  if(!Media.isVideo(file))throw Error(file.size>Media.MAX_VIDEO_BYTES?'1ファイルは1GB以下で登録してください':'対応する動画（MP4・MOV・WebMなど）を選択してください');
@@ -509,6 +719,7 @@ async function chooseFile(file,itemId,autoPlay=true){
  try{const thumb=await Media.captureThumbnail(file);if(thumb){await Media.putThumbnail(db,record.id,thumb);const old=thumbnailURLs.get(record.id);if(old)URL.revokeObjectURL(old);thumbnailURLs.delete(record.id);thumbnailFailed.delete(record.id);}}
  catch{} // Thumbnail failures must not prevent playback.
  const old=objUrls.get(record.id);if(old)URL.revokeObjectURL(old);objUrls.delete(record.id);
+ if(saved)volatileFiles.delete(record.id);else volatileFiles.set(record.id,file);
  if(autoPlay||!saved){const url=URL.createObjectURL(file);objUrls.set(record.id,url);if(autoPlay){const fresh=records.find(r=>r.id===record.id)||record;play(fresh,url);}}
  return {saved,id:record.id,duplicate:Boolean(duplicate)};
 }
@@ -538,15 +749,29 @@ async function importJSON(file){
   await writeAll(result.items);await reload();toast(`${result.imported}件の作品を読み込みました`);
 }
 
-async function init(){db=await openDB();await initDevice();await initLiveSettings();await initOfflineCatalog();await reload();await backfillLegacyFingerprints();$('addBtn').onclick=()=>editItem();$('addVideoBtn').onclick=()=>{selectedFileItem=null;$('videoFile').value='';$('videoFile').click();};$('search').oninput=()=>{render();renderSiteLinks();scheduleAutoSearch();};$('liveSearchBtn').onclick=()=>runLiveSearch().catch(e=>toast('ライブ検索失敗: '+e.message));$('harvestBtn').onclick=()=>harvestCatalog().catch(e=>{$('harvestStatus').textContent='取得失敗: '+e.message;});
+async function init(){db=await openDB();await initDevice();await initLiveSettings();await initOfflineCatalog();await reload();await backfillLegacyFingerprints();$('addBtn').onclick=()=>editItem();$('externalQuickForm').addEventListener('submit',ev=>saveManualExternal(ev).catch(e=>toast('リンク登録に失敗: '+e.message)));$('attachMediaFile').onclick=()=>{$('attachVideoFile').value='';$('attachVideoFile').click();};$('attachVideoFile').addEventListener('change',async ev=>{try{if(ev.target.files?.[0]){const row=await attachVideoToRecord(ev.target.files[0],saveTargetId);$('directMediaStatus').textContent=`端末へ保存しました：${row.title}`;toast('動画ファイルを紐付けました');}}catch(e){$('directMediaStatus').textContent='保存できません：'+e.message;}finally{ev.target.value='';}});$('saveDirectMedia').onclick=()=>downloadSave();$('cancelDirectMedia').onclick=()=>directDownloadAbort?.abort();$('addVideoBtn').onclick=()=>{selectedFileItem=null;$('videoFile').value='';$('videoFile').click();};$('search').oninput=()=>{render();renderSiteLinks();scheduleAutoSearch();};$('javinfoSearchBtn').onclick=()=>runJavinfoSearch().catch(e=>javinfoStatus(e.message));$('javinfoSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();void runJavinfoSearch().catch(err=>javinfoStatus(err.message));}});$('liveSearchBtn').onclick=()=>runLiveSearch().catch(e=>toast('ライブ検索失敗: '+e.message));$('harvestBtn').onclick=()=>harvestCatalog().catch(e=>{$('harvestStatus').textContent='取得失敗: '+e.message;});
  $('importCatalogBtn').onclick=()=>$('catalogFile').click();
+ $('missavCompatFileBtn').onclick=()=>$('missavCompatFile').click();
+ $('missavCompatFile').addEventListener('change',async e=>{
+  try{if(e.target.files?.[0])await importMissavFile(e.target.files[0]);}
+  catch(err){$('missavCompatStatus').textContent='取込できません: '+err.message;}
+  finally{e.target.value='';}
+ });
+ $('missavCompatPasteBtn').onclick=()=>{
+  try{
+   const value=$('missavCompatPaste').value;
+   if(new Blob([value]).size>MissavCompat.MAX_BYTES)throw Error('JSONが2MBを超えています');
+   void saveMissavCompatibility(JSON.parse(value)).catch(err=>$('missavCompatStatus').textContent='取込できません: '+err.message);
+  }catch(err){$('missavCompatStatus').textContent='取込できません: '+err.message;}
+ };
+ $('missavCompatFetchBtn').onclick=()=>fetchMissavCompatibility();
  $('catalogFile').addEventListener('change',async ev=>{try{if(ev.target.files?.[0])await importOfflineCatalog(ev.target.files[0]);}catch(err){toast(`作品情報の取込に失敗: ${err.message}`);}finally{ev.target.value='';}});
  $('clearCatalogBtn').onclick=async()=>{if(!confirm(`端末内カタログ${offlineCatalogRows.length}件を削除しますか？マイライブラリと動画本体は削除しません。`))return;await writeMeta('offlineCatalogRows',[]);offlineCatalogRows=[];liveCatalogRows=[];renderCatalogStatus();renderLiveGroups();toast('取込カタログを消去しました');};
  $('healthBtn').onclick=()=>inspectLibrary().catch(e=>toast('診断に失敗しました: '+e.message));
  $('repairCopiesBtn').onclick=()=>repairCopies().catch(e=>toast('修復に失敗しました: '+e.message));$('saveLiveSettings').onclick=()=>saveLiveSettings().catch(e=>toast('設定保存失敗: '+e.message));$('checkFollows').onclick=checkFollowedReleases;$('provider').onchange=render;document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
  $('editForm').addEventListener('submit',async ev=>{ev.preventDefault();const f=ev.currentTarget,provider=f.elements.provider.value,url=f.elements.referenceURL.value.trim();if(url&&!safeURL(url,provider)){toast('提供元に合うHTTPS URLを登録してください');return;}
  try{await store({...records.find(r=>r.id===activeId),id:activeId||uid(),title:f.elements.title.value,code:f.elements.code.value,performers:f.elements.performers.value,provider,referenceURL:url});$('editDialog').close();toast('保存しました');}catch(e){toast(`保存エラー: ${e.message}`);}});
- $('deleteBtn').onclick=async()=>{if(!activeId||!confirm('この作品情報を削除しますか？'))return;try{await Media.removeWithRecord(db,activeId);}catch(err){toast(`作品を削除できません: ${err.message}`);return;}const tu=thumbnailURLs.get(activeId);if(tu){URL.revokeObjectURL(tu);thumbnailURLs.delete(activeId);}thumbnailFailed.delete(activeId);const u=objUrls.get(activeId);if(u)URL.revokeObjectURL(u);objUrls.delete(activeId);$('editDialog').close();await reload();toast('登録を削除しました');};
+ $('deleteBtn').onclick=async()=>{if(!activeId||!confirm('この作品情報を削除しますか？'))return;try{await Media.removeWithRecord(db,activeId);}catch(err){toast(`作品を削除できません: ${err.message}`);return;}const tu=thumbnailURLs.get(activeId);if(tu){URL.revokeObjectURL(tu);thumbnailURLs.delete(activeId);}thumbnailFailed.delete(activeId);const u=objUrls.get(activeId);if(u)URL.revokeObjectURL(u);objUrls.delete(activeId);volatileFiles.delete(activeId);$('editDialog').close();await reload();toast('登録を削除しました');};
  $('videoFile').addEventListener('change',async ev=>{try{await importVideoBatch(ev.target.files);}catch(err){toast(`動画の読込に失敗: ${err.message}`);}finally{ev.target.value='';}});
  $('saveDeviceLabel').onclick=async()=>{
    const label=clean($('deviceLabel').value,35)||'自分のiPhone';
@@ -560,12 +785,19 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  $('syncStopBtn').onclick=()=>{cloudSession=null;$('syncStatus').textContent='同期停止。ログイン情報は保持していません。';};
  setInterval(()=>{if(cloudSession&&!document.hidden)performCloudSync().catch(()=>{});},5*60*1000);
  $('exportBtn').onclick=exportEncrypted;$('importBtn').onclick=()=>$('backupFile').click();$('backupFile').addEventListener('change',async ev=>{try{if(ev.target.files?.[0])await importJSON(ev.target.files[0]);}catch(err){toast(`取込失敗: ${err.message}`);}finally{ev.target.value='';$('backupPassword').value='';}});
- $('playerClose').onclick=()=>closeVideo();$('playerDialog').addEventListener('cancel',ev=>{ev.preventDefault();closeVideo();});$('playerDialog').addEventListener('close',()=>{$('player').pause();});
+ $('embeddedSourceLink').addEventListener('click',()=>{const row=records.find(x=>x.id===embeddedCurrentId);if(row)void markExternalOpen(row).catch(()=>{});});$('playerSaveLocal').onclick=()=>savePlayingMedia().catch(e=>toast(e.message));$('playerExportFile').onclick=()=>{const row=records.find(r=>r.id===currentId);if(row)exportMediaFile(row).catch(e=>toast(e.message));};$('playerClose').onclick=()=>closeVideo();$('playerDialog').addEventListener('cancel',ev=>{ev.preventDefault();closeVideo();});$('playerDialog').addEventListener('close',()=>{$('player').pause();});
  $('rewind').onclick=()=>{$('player').currentTime=Math.max(0,($('player').currentTime||0)-10);};$('forward').onclick=()=>{$('player').currentTime=Math.min(Number.isFinite($('player').duration)?$('player').duration:Infinity,($('player').currentTime||0)+10);};
  const speedValues=[1,1.25,1.5,2,0.75];$('speed').onclick=()=>{const video=$('player'),i=speedValues.indexOf(video.playbackRate);video.playbackRate=speedValues[(i+1)%speedValues.length];$('speed').textContent=`${video.playbackRate}倍`;};
  $('fullScreen').onclick=()=>{const video=$('player');if(video.webkitEnterFullscreen)video.webkitEnterFullscreen();else video.requestFullscreen?.();};
  $('pip').onclick=async()=>{const video=$('player');try{if(video.webkitSetPresentationMode){video.webkitSetPresentationMode('picture-in-picture');}else if(document.pictureInPictureEnabled)await video.requestPictureInPicture();else toast('この環境ではPiPを使えません');}catch{toast('PiPを開始できませんでした');}};
- $('player').addEventListener('timeupdate',()=>{if(Date.now()-lastSavedAt>8000){lastSavedAt=Date.now();savePosition().catch(()=>{});}});$('player').addEventListener('pause',()=>savePosition().catch(()=>{}));$('player').addEventListener('ended',()=>savePosition().then(render).catch(()=>{}));$('player').addEventListener('error',()=>{if($('player').src)toast('この動画を再生できません。形式や配信元の許可をご確認ください');});
+ $('player').addEventListener('playing',()=>recordNativePlaying().catch(()=>{}));
+ $('player').addEventListener('timeupdate',()=>{if(Date.now()-lastSavedAt>8000){lastSavedAt=Date.now();savePosition().catch(()=>{});}});$('player').addEventListener('pause',()=>savePosition().catch(()=>{}));$('player').addEventListener('ended',()=>savePosition().then(render).catch(()=>{}));$('player').addEventListener('error',()=>{
+  if(!$('player').src)return;
+  const item=records.find(r=>r.id===currentId);
+  $('playerHelp').textContent='再生できませんでした。HLS URLの期限切れ、Safari非対応、配信元のアクセス制御などが考えられます。制限を回避する処理は行いません。';
+  if(item?.referenceURL){const link=$('embeddedSourceLink');link.href=item.referenceURL;link.hidden=false;}
+  toast('この動画を再生できません。元サイトへのリンクをご確認ください');
+ });
  $('storageBtn').onclick=async()=>{
    if(!navigator.storage?.estimate){toast('容量情報に対応していません');return;}
    const e=await navigator.storage.estimate();
@@ -602,7 +834,7 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  $('loadSubtitle').onclick=()=>$('subtitleFile').click();
  $('clearMediaBtn').onclick=async()=>{
    const all=await Media.keys(db);if(!confirm(`端末に保存した動画${all.length}件を削除しますか？作品情報は残ります。`))return;
-   for(const id of all){await Media.remove(db,id);const u=objUrls.get(id);if(u)URL.revokeObjectURL(u);objUrls.delete(id);const r=records.find(x=>x.id===id);if(r)await saveOne({...r,hasLocalCopy:false});}
+   for(const id of all){await Media.remove(db,id);const u=objUrls.get(id);if(u)URL.revokeObjectURL(u);objUrls.delete(id);volatileFiles.delete(id);const r=records.find(x=>x.id===id);if(r)await saveOne({...r,hasLocalCopy:false});}
    await reload();toast('端末内の動画を削除しました');
  };
 
