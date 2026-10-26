@@ -72,3 +72,22 @@
 .javinfo-result-actions{display:flex;flex-wrap:wrap;gap:8px}.javinfo-result-actions button,.javinfo-result-actions a{border-radius:10px;background:#3a3b4b;color:#fff;border:1px solid #626476;padding:9px 10px;font-size:12px;text-decoration:none;min-height:38px}
 .javinfo-result-actions .javinfo-play{background:var(--accent);border:0;color:#281722;font-weight:800}
 .javinfo-result-actions button:disabled{opacity:.45}
+
+
+/* v1.9.5: all-views footer credits (above fixed tab bar and iPhone safe area). */
+.site-credit{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin:36px auto 0;padding:17px 12px 5px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.5;text-align:center;letter-spacing:.015em}
+.site-credit-name{font-weight:600;white-space:nowrap}
+.site-credit-version{font-size:10px;color:var(--accent);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* v1.9.6: saved javinfo API key, image previews, pagination, compact clear-history control */
+.javinfo-secret-actions{display:flex;flex-wrap:wrap;gap:7px}
+.javinfo-secret-actions button,.javinfo-pages button{background:#333747;color:var(--text);border:1px solid #646676;border-radius:9px;padding:9px 12px;font-size:12px;font-weight:700;min-height:38px}
+.javinfo-secret-actions #javinfoKeySave{background:var(--accent);color:#271922;border:0}
+.javinfo-secret-actions #javinfoKeyClear{font-size:11px}
+.javinfo-pages{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0 4px}
+.javinfo-pages[hidden]{display:none}.javinfo-pages button:disabled{opacity:.36}
+.javinfo-pages span{color:var(--muted);font-size:12px}
+.javinfo-result-heading{display:flex;gap:9px;align-items:flex-start}
+.javinfo-thumb{width:82px;height:106px;object-fit:cover;border-radius:9px;flex-shrink:0;background:#363546}
+.live-info{min-width:0;overflow-wrap:anywhere}
+.clear-history{font-size:11px;color:var(--muted);padding:6px 9px;background:transparent;border:1px solid var(--line);border-radius:8px}

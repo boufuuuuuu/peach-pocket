@@ -1,5 +1,5 @@
 /* javinfo REST integration for 桃息吐息.
- * Browser-only / no API key persistence / no host-header forgery / no CORS bypass.
+ * Browser-only / opt-in encrypted local key vault / no host-header forgery / no CORS bypass.
  * Only the service's published /query and /movie endpoints are accessed.
  */
 (function(root,factory){
@@ -50,7 +50,9 @@
   const hls=options.map(streamURL).find(Boolean)||'';
   return {metadata,hls,available:Boolean(hls),source:clip(payload.source,30)};
  }
- async function request(kind,value,key,{fetcher=fetch,signal}={}){
+ function pageNumber(value){const n=Number(value);if(!Number.isInteger(n)||n<1||n>50)throw Error('ページは1〜50を指定してください');return n;}
+ function uniqueResults(rows){const seen=new Set();return (rows||[]).filter(r=>{const k=String(r.code||r.referenceURL||r.title||'').trim().toLowerCase();if(!k||seen.has(k))return false;seen.add(k);return true;});}
+ async function request(kind,value,key,{fetcher=fetch,signal,page=1}={}){
   const endpoint=kind==='query'?'/query':kind==='movie'?'/movie':null;
   if(!endpoint)throw Error('不明なAPI');
   const q=kind==='query'?queryText(value):dvdCode(value);
@@ -60,7 +62,7 @@
   timer=setTimeout(()=>abort.abort(),15_000);
   try{
    let res;
-   try{res=await fetcher(ORIGIN+endpoint,{method:'POST',mode:'cors',credentials:'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',headers,body:JSON.stringify(kind==='query'?{q,providers:'missav',num:12,page:1}:{q,providers:'missav'}),signal:abort.signal});}
+   try{res=await fetcher(ORIGIN+endpoint,{method:'POST',mode:'cors',credentials:'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',headers,body:JSON.stringify(kind==='query'?{q,providers:'missav',num:12,page:pageNumber(page)}:{q,providers:'missav'}),signal:abort.signal});}
    catch(err){throw Error(abort.signal.aborted?'通信がタイムアウトまたは中断されました':'APIに接続できません（CORS・ネットワーク設定を確認）');}
    if(res.status===401||res.status===403)throw Error('APIキー・利用権限を確認してください（HTTP '+res.status+'）');
    if(res.status===429)throw Error('APIのレート制限に達しました。時間をおいてください');
@@ -76,5 +78,5 @@
  }
  async function search(term,key,options){return request('query',term,key,options);}
  async function movie(code,key,options){return request('movie',code,key,options);}
- return {ORIGIN,search,movie,item,normalizeSearch,normalizeDetail,apiKey,queryText,dvdCode,streamURL};
+ return {ORIGIN,search,movie,item,normalizeSearch,normalizeDetail,apiKey,queryText,dvdCode,streamURL,pageNumber,uniqueResults};
 });
