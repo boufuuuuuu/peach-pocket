@@ -164,7 +164,7 @@ function renderJavinfoResults(){
     playBtn.disabled=!entry.code;
     playBtn.onclick=()=>playJavinfoMovie(entry).catch(e=>javinfoStatus('再生準備に失敗: '+e.message));
     actions.append(playBtn);
-    if(entry.referenceURL){const link=elem('a','','↗ 元サイト');link.href=entry.referenceURL;link.target='_blank';link.rel='noopener noreferrer';link.referrerPolicy='no-referrer';link.addEventListener('click',()=>{void markExternalOpen(entry).catch(()=>{});});actions.append(link);}
+    const original=originalWatchLink(entry,'↗ 元サイトで再生');if(original)actions.append(original);
     card.append(actions);parent.append(card);
   }
 }
@@ -726,6 +726,20 @@ function saveOne(item){return new Promise((resolve,reject)=>{const tx=db.transac
 function deleteOne(id){return new Promise((resolve,reject)=>{const tx=db.transaction('items','readwrite');tx.objectStore('items').delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
 async function reload(){records=(await readAll()).map(row=>canonical(row,uid)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));render();}
 async function store(item){const r=canonical({...item,updatedAt:new Date().toISOString()},uid);await saveOne(r);await reload();}
+// A first-party watch page is an external visit, never a verified playback.
+// This link is created synchronously from a user gesture: Safari may block
+// a window opened only after async IndexedDB work.
+function originalWatchLink(source,label='↗ 元サイトで再生'){
+  const url=safeURL(source?.referenceURL,source?.provider);
+  if(!url)return null; // Never synthesize a player URL or guess an embed path.
+  const link=elem('a','original-watch-link',label);
+  link.href=url;link.target='_blank';link.rel='noopener noreferrer';
+  link.referrerPolicy='no-referrer';
+  link.addEventListener('click',()=>{
+    void markExternalOpen(source).catch(()=>toast('外部訪問履歴を保存できませんでした'));
+  });
+  return link;
+}
 // Never count external page navigation as a confirmed playback or watched time.
 async function markExternalOpen(source){
  const url=safeURL(source.referenceURL,source.provider);if(!url)throw Error('有効な参照URLがありません');
@@ -798,8 +812,8 @@ function renderCards(id,list){const parent=$(id);parent.replaceChildren();if(!li
  for(const r of list){const card=elem('article','item');const cover=elem('div','cover');const thumb=imageFor(r.coverURL,r.title);if(thumb)cover.append(thumb);else cover.append(elem('span','film','▶'));bindThumbnail(cover,r);cover.append(elem('span','provider',PROVIDERS[r.provider]));card.append(cover);const body=elem('div','item-body');body.append(elem('div','item-title',r.title),elem('div','code',r.code||r.performers.join('・')||'作品情報'));
  if(id==='visits'){const when=External.latestAt(r);const label=r.lastExternalOpenedAt===when?'外部ページを開いた（再生確認なし）':'アプリ内で再生';const date=new Date(when);body.append(elem('div','external-visit-label',`${label} · ${Number.isNaN(date.getTime())?'':date.toLocaleString('ja-JP')}`));}
  const bar=elem('div','progress');const fill=elem('div');fill.style.width=`${Math.min(100,r.duration?Math.max(0,r.lastPosition/r.duration*100):r.progressPercent)}%`;bar.append(fill);body.append(bar);
- const controls=elem('div','controls');const action=elem('button','play',r.hasLocalCopy?'▶ 保存動画を再生':r.provider==='local'?(objUrls.has(r.id)?'▶ 再生':'動画を選ぶ'):Catalog.safePlayable(r,liveSettings.mediaOrigins)||Catalog.safeEmbed(r,liveSettings.mediaOrigins)?'▶ アプリ内で再生':Javinfo.PROVIDERS.includes(r.provider)&&r.code?'▶ 再生':'↗ 元サイト');action.addEventListener('click',()=>start(r));const fav=elem('button',`heart${r.isFavorite?' on':''}`,r.isFavorite?'♥ 保存済み':'♡ 保存');fav.addEventListener('click',()=>syncGroupState(r,{isFavorite:!r.isFavorite}).catch(e=>toast(e.message)));controls.append(action,fav);body.append(controls);
- const small=elem('div','secondary-controls');const edit=elem('button','', '編集');edit.addEventListener('click',()=>editItem(r));const watched=elem('button','',r.isWatched?'未視聴へ':'視聴済み');watched.addEventListener('click',()=>syncGroupState(r,{isWatched:!r.isWatched}).catch(e=>toast(e.message)));small.append(edit,watched);const local=elem('button','',r.hasLocalCopy?'⇩ ファイルへ書出':'↓ 動画を保存');local.addEventListener('click',()=>r.hasLocalCopy?exportMediaFile(r).catch(e=>toast('書出に失敗: '+e.message)):openSaveMedia(r));small.append(local);body.append(small);card.append(body);parent.append(card);
+ const controls=elem('div','controls');const action=elem('button','play',r.hasLocalCopy?'▶ 保存動画を再生':r.provider==='local'?(objUrls.has(r.id)?'▶ 再生':'動画を選ぶ'):Catalog.safePlayable(r,liveSettings.mediaOrigins)||Catalog.safeEmbed(r,liveSettings.mediaOrigins)?'▶ アプリ内で再生':Javinfo.PROVIDERS.includes(r.provider)&&r.code?(r.provider==='missav'?'▶ アプリ内を試す':'▶ 再生'):'↗ 元サイト');action.addEventListener('click',()=>start(r));const fav=elem('button',`heart${r.isFavorite?' on':''}`,r.isFavorite?'♥ 保存済み':'♡ 保存');fav.addEventListener('click',()=>syncGroupState(r,{isFavorite:!r.isFavorite}).catch(e=>toast(e.message)));controls.append(action,fav);body.append(controls);
+ const small=elem('div','secondary-controls');const edit=elem('button','', '編集');edit.addEventListener('click',()=>editItem(r));const watched=elem('button','',r.isWatched?'未視聴へ':'視聴済み');watched.addEventListener('click',()=>syncGroupState(r,{isWatched:!r.isWatched}).catch(e=>toast(e.message)));small.append(edit,watched);const local=elem('button','',r.hasLocalCopy?'⇩ ファイルへ書出':'↓ 動画を保存');local.addEventListener('click',()=>r.hasLocalCopy?exportMediaFile(r).catch(e=>toast('書出に失敗: '+e.message)):openSaveMedia(r));small.append(local);const originalLink=originalWatchLink(r);if(originalLink)small.prepend(originalLink);body.append(small);card.append(body);parent.append(card);
  }}
 function updateQuickResume(){
  const candidates=records.filter(r=>r.hasLocalCopy||objUrls.has(r.id)||

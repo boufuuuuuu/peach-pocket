@@ -137,3 +137,8 @@
   border:1px solid var(--border, #626577);padding:12px;border-radius:12px;
   user-select:text;-webkit-user-select:text;
 }
+
+/* v1.10.11: direct, explicit first-party watch-page action. */
+.secondary-controls{flex-wrap:wrap}
+.secondary-controls .original-watch-link{color:var(--accent);font-weight:700;text-underline-offset:3px}
+.javinfo-result-actions .original-watch-link{border-color:var(--accent);color:var(--accent)}
