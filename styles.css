@@ -97,3 +97,13 @@
 #manualStreamPanel{margin-top:8px}
 #manualStreamPanel input:not([type=checkbox]){min-width:0;width:100%;box-sizing:border-box}
 #manualStreamPanel .live-primary{width:100%}
+
+/* v1.9.8: single settings hub for credentials and a visible playback diagnostic. */
+.api-settings-link{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;background:#302a38;border:1px solid #6d4e65;border-radius:11px;padding:10px;font-size:12px;color:var(--text)}
+.api-settings-link button{background:var(--accent);border:0;color:#24161f;border-radius:9px;padding:10px 12px;font-size:12px;font-weight:750;min-height:40px}
+.api-card,.diag-card{scroll-margin-top:16px}
+.api-card .javinfo-secret-actions{display:flex;flex-wrap:wrap;gap:8px}
+.api-card .javinfo-secret-actions button{flex:1;min-width:120px}
+.diag-card #playbackDiagnosticStatus{background:#171922;border:1px solid var(--line);border-radius:10px;padding:12px;color:var(--text);overflow-wrap:anywhere}
+.player-diag-link{background:#302b3c;color:var(--accent);border:1px solid #72546a;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;font-weight:700}
+.player-diag-link[hidden]{display:none}

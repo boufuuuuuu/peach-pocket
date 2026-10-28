@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
-  <title>桃息吐息 | iPhone動画ライブラリ v1.9.7</title>
+  <title>桃息吐息 | iPhone動画ライブラリ v1.10.4</title>
 </head>
 <body>
   <main class="layout" id="app">
@@ -43,10 +43,7 @@
       <section class="javinfo-panel" aria-labelledby="javinfoHeading">
         <div class="javinfo-heading"><h2 id="javinfoHeading">🔎 作品検索・再生（複数提供元）</h2><span class="privacy-chip">javinfo API</span></div>
         <p class="note">品番・出演者・作品名で検索できます。APIキーが必要です。検索・詳細取得にはjavinfo側で従量課金が発生する場合があります。</p>
-        <label for="javinfoKey">javinfo APIキー（必要に応じてこのiPhoneに保存）</label>
-        <input id="javinfoKey" type="password" placeholder="jvi_..." autocomplete="off" autocapitalize="off" spellcheck="false" />
-        <div class="javinfo-secret-actions"><button id="javinfoKeySave" type="button">🔒 この端末にキーを保存</button><button id="javinfoKeyClear" type="button">保存を削除</button></div>
-        <p id="javinfoKeyStatus" class="note" aria-live="polite">未保存。保存は任意です。端末内で暗号化し、バックアップ・同期・GitHubの公開ファイルには含めません。同じサイトのJavaScriptからは使用できるため、共有端末には保存しないでください。</p>
+        <div class="api-settings-link"><span>APIキーの登録・保存・削除は「設定」で行います。</span><button id="openApiSettings" type="button">⚙ APIキーを設定</button></div>
         <label for="javinfoProvider">検索する情報元</label>
         <select id="javinfoProvider" aria-label="javinfo検索元"><option value="missav">MISSAV（HLS候補あり）</option><option value="sextb">SEXTB（HLS候補あり）</option><option value="javdatabase">JAVDATABASE（作品情報・予告編）</option><option value="javlibrary">JAVLIBRARY（作品情報）</option><option value="fanza">FANZA（作品情報）</option><option value="dmm">DMM（作品情報）</option><option value="javdb">JavDB（日本から接続不可の場合あり）</option></select>
         <p class="note">提供元によっては検索・作品情報のみで本編URLは提供されません。直接再生はSafari対応の許可済みストリームに限ります。</p>
@@ -58,12 +55,13 @@
         <div class="javinfo-pages" id="javinfoPages" hidden><button id="javinfoPrev" type="button">← 前のページ</button><span id="javinfoPageLabel">1ページ</span><button id="javinfoNext" type="button">次のページ →</button></div>
         <p class="note">再生成功時にのみ視聴履歴を記録。MISSAV/SEXTBのHLSは非標準の配信形式や提供元制限によりiPhoneで再生できない場合があります。</p>
         <details class="external-quick" id="manualStreamPanel"><summary>▶ APIなしで再生（許可済みMP4 / HLS URL）</summary>
-          <p class="note">自分が再生権限を持つ、直接のHTTPS動画ファイル／HLSプレイリストのURLだけを入力。動画ページURL、DRM、サイト側のアクセス制限には非対応。URLは保存しません。</p>
+          <p class="note">自分が再生権限を持つ、直接のHTTPS動画ファイル／HLSプレイリストのURLだけを入力。動画ページURL、DRM、サイト側のアクセス制限には非対応。</p>
           <label for="manualStreamTitle">作品名</label><input id="manualStreamTitle" maxlength="200" placeholder="作品名（任意）" />
           <label for="manualStreamCode">品番</label><input id="manualStreamCode" maxlength="64" placeholder="ABCD-123（任意）" />
           <label for="manualStreamURL">直接動画URL（.mp4・.m3u8等）</label><input id="manualStreamURL" type="url" placeholder="https://media.example.org/movie.mp4" autocomplete="off" />
           <label class="javinfo-consent"><input id="manualStreamRights" type="checkbox" /> 再生が許可された動画URLです</label>
-          <button id="manualStreamPlay" type="button" class="live-primary">▶ 動画をアプリ内で再生</button><p id="manualStreamStatus" class="note" aria-live="polite">APIキー不要。再生開始したときだけ履歴に残ります。URLは保存されません。</p>
+          <label class="javinfo-consent"><input id="manualStreamSave" type="checkbox" /> このURLをライブラリに保存して、次回以降もアプリ内で再生する（配信オリジンを自動で許可リストに追加します）</label>
+          <button id="manualStreamPlay" type="button" class="live-primary">▶ 動画をアプリ内で再生</button><p id="manualStreamStatus" class="note" aria-live="polite">APIキー不要。再生開始したときだけ履歴に残ります。「保存」にチェックを入れない限り、URLは保存されません。</p>
         </details>
       </section>
       <div class="section-heading"><h2>マイライブラリ</h2><small id="count"></small></div><div id="library" class="items"></div>
@@ -104,7 +102,25 @@
     <section id="favoritesView" class="view" hidden><div class="section-heading"><h2>お気に入り</h2></div><div id="favorites" class="items"></div></section>
     <section id="continueView" class="view" hidden><div class="section-heading"><h2>最近開いた作品</h2><button id="clearHistoryBtn" type="button" class="clear-history">履歴を削除</button></div><p class="note">外部サイトは「ページを開いた履歴」です。実際に視聴したことや再生位置を示すものではありません。視聴済みは作品カードから手動で登録できます。</p><div id="visits" class="items"></div><div class="section-heading"><h2>続きから再生（アプリ内）</h2></div><div id="continues" class="items"></div></section>
     <section id="duplicatesView" class="view" hidden><div class="section-heading"><h2>重複チェック</h2></div><p id="duplicateCount" class="note"></p><div id="duplicates" class="duplicate-list"></div><h2>視聴統計</h2><p id="statsSummary" class="note"></p></section>
-    <section id="settingsView" class="view" hidden><h2>データと設定</h2><div class="settings"><div class="device-card"><strong>この端末のライブラリ</strong><span id="deviceId" class="note">端末識別情報を読み込み中</span><label for="deviceLabel">端末の表示名（端末内のみ）</label><input id="deviceLabel" maxlength="35" placeholder="自分のiPhone" /><button id="saveDeviceLabel" type="button">この端末の名前を保存</button></div><p>作品情報と保存指定した動画はこの端末のブラウザ内に保存されます。GitHubにはアップロードされません。</p>
+    <section id="settingsView" class="view" hidden><h2>データと設定</h2><div class="settings">
+<div class="device-card api-card" id="apiSettingsCard"><strong>🔑 javinfo APIキー（このiPhoneのみ）</strong>
+<p class="note">作品検索・詳細取得に使用します。API提供元の料金や利用条件を確認してください。入力したキーは公開GitHubに含まれません。</p>
+        <label for="javinfoKey">javinfo APIキー（必要に応じてこのiPhoneに保存）</label>
+        <input id="javinfoKey" type="password" placeholder="jvi_..." autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <div class="javinfo-secret-actions"><button id="javinfoKeySave" type="button">🔒 この端末にキーを保存</button><button id="javinfoKeyClear" type="button">保存を削除</button></div>
+        <p id="javinfoKeyStatus" class="note" aria-live="polite">未保存。保存は任意です。端末内で暗号化し、バックアップ・同期・GitHubの公開ファイルには含めません。同じサイトのJavaScriptからは使用できるため、共有端末には保存しないでください。</p>
+<p class="note">同じオリジンで実行されるJavaScriptからは復号され得ます。共有端末では保存しないでください。</p></div>
+<div class="device-card diag-card" id="playbackDiagnosticsCard"><strong>⚠ 再生エラー診断</strong>
+<p class="note">再生エラーが発生すると、原因の候補とブラウザのエラー種別を表示します。「動画が再生できたか」や配信元の制限理由を断定するものではありません。</p>
+<p id="playbackDiagnosticStatus" class="note" aria-live="polite">この起動中に記録された再生エラーはありません。</p>
+<button id="clearPlaybackDiagnostic" type="button">診断表示を消去</button>
+</div>
+<div class="device-card" id="streamIntegrityCard"><strong>🔍 再生URLの不整合チェック</strong>
+<p class="note">再生できないURLや、再生URLがないのに許可フラグだけ残っている作品を検出します。正常なカタログデータの可能性もあるため、自動では削除しません。確認のうえ、不要なものだけクリアできます。</p>
+<button id="scanStreamIntegrity" type="button">不整合をスキャン</button>
+<p class="note">安全のため修復候補は最初すべて未選択です。内容を確認して必要なものだけ選択してください。診断だけでは削除しません。</p><div id="streamIntegrityResults"></div>
+</div>
+<div class="device-card"><strong>この端末のライブラリ</strong><span id="deviceId" class="note">端末識別情報を読み込み中</span><label for="deviceLabel">端末の表示名（端末内のみ）</label><input id="deviceLabel" maxlength="35" placeholder="自分のiPhone" /><button id="saveDeviceLabel" type="button">この端末の名前を保存</button></div><p>作品情報と保存指定した動画はこの端末のブラウザ内に保存されます。GitHubにはアップロードされません。</p>
 
  <div class="device-card"><strong>外部サイト検索API（任意・端末内設定）</strong>
   <p class="note">MISSAV・JavDB・Jable・85roの一般公開の公式検索・全件取得APIは確認できていません。自身が利用権限を持つCORS対応JSON APIだけ登録してください。各サイトのURLを貼るだけでは利用できません。APIキー・パスワードを入力しないでください。</p>
@@ -137,12 +153,12 @@
         <button id="repairCopiesBtn" type="button" hidden>保存フラグだけ修復（動画は削除しない）</button><button id="clearMediaBtn" type="button">端末保存した動画本体だけ削除</button><p class="note" id="importErrors" aria-live="polite"></p><button id="persistBtn" type="button">保存領域の保護を要求</button><button id="updateBtn" type="button">アプリの更新を確認</button><p class="note" id="storageStatus" aria-live="polite"></p><input id="backupFile" type="file" accept=".json,application/json" hidden /><p class="note" id="sourceNote"></p><p class="note">チェックを付けて端末内保存した動画は再起動後も選択不要ですが、iOSの保存容量制限・自動削除・アプリデータ消去の対象になり得ます。元の動画を別途保管してください。</p><p class="note">本アプリは個人管理用です。外部サイトの動画抽出、DRM解除、無許可の自動取得は行いません。</p></div></section>
     <footer class="site-credit" id="siteCredit" aria-label="制作者とバージョン">
       <span class="site-credit-name">プログラム by depa</span>
-      <span class="site-credit-version" id="siteVersion">v1.9.7</span>
+      <span class="site-credit-version" id="siteVersion">v1.10.4</span>
     </footer>
   </main>
   <nav class="tabbar" aria-label="メインナビゲーション"><button class="tab active" data-view="home"><span>⌂</span>ホーム</button><button class="tab" data-view="favorites"><span>♡</span>お気に入り</button><button class="tab" data-view="continue"><span>▶</span>履歴</button><button class="tab" data-view="duplicates"><span>≡</span>重複</button><button class="tab" data-view="settings"><span>⚙</span>設定</button></nav>
-  <dialog id="editDialog" class="sheet"><form id="editForm" method="dialog"><div class="sheet-head"><h2 id="dialogTitle">作品を追加</h2><button value="cancel" formnovalidate class="close" aria-label="閉じる">×</button></div><label>タイトル<input name="title" required maxlength="300" /></label><label>品番<input name="code" maxlength="64" /></label><label>出演者（カンマ区切り）<input name="performers" maxlength="400" /></label><label>登録元<select name="provider"><option value="local">端末内</option><option value="licensed">許可済み動画URL</option><option value="peach">Peach</option><option value="missav">MISSAV</option><option value="sextb">SEXTB</option><option value="javdatabase">JAVDATABASE</option><option value="javlibrary">JAVLIBRARY</option><option value="fanza">FANZA</option><option value="dmm">DMM</option><option value="javdb">JavDB</option><option value="jable">Jable</option><option value="ro85">85ro</option><option value="njavtv">NJAVTV</option><option value="tktube">TKTube CB</option><option value="external">外部サイト</option></select></label><label>参照URL（HTTPSのみ）<input name="referenceURL" inputmode="url" placeholder="https://..." maxlength="2048" /></label><div class="sheet-actions"><button type="submit" value="save" class="primary">保存</button><button type="button" id="deleteBtn" class="danger" hidden>削除</button></div></form></dialog>
-  <dialog id="playerDialog" class="player-sheet"><div class="player-head"><span id="playerTitle"></span><button class="close" id="playerClose" aria-label="再生画面を閉じる">×</button></div><video id="player" controls playsinline preload="metadata"><track id="subtitleTrack" kind="subtitles" srclang="ja" label="日本語" hidden /></video><iframe id="embeddedPlayer" title="許可された外部埋め込みプレイヤー" hidden sandbox="allow-scripts allow-same-origin allow-presentation" referrerpolicy="no-referrer" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe><div id="subtitleTracks" hidden></div><div class="player-actions"><button id="rewind">−10秒</button><button id="forward">+10秒</button><button id="speed">1.0倍</button><button id="fullScreen">全画面</button><button id="pip">PiP</button><button id="playerSaveLocal">↓ 端末へ保存</button><button id="playerExportFile">⇩ ファイルへ書出</button><button id="loadSubtitle">字幕(.vtt)</button></div><p id="playerHelp" class="note"></p><a id="embeddedSourceLink" class="embed-source-link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>元サイトで開く</a></dialog>
+  <dialog id="editDialog" class="sheet"><form id="editForm" method="dialog"><div class="sheet-head"><h2 id="dialogTitle">作品を追加</h2><button value="cancel" formnovalidate class="close" aria-label="閉じる">×</button></div><label>タイトル<input name="title" required maxlength="300" /></label><label>品番<input name="code" maxlength="64" /></label><label>出演者（カンマ区切り）<input name="performers" maxlength="400" /></label><label>登録元<select name="provider"><option value="local">端末内</option><option value="licensed">許可済み動画URL</option><option value="peach">Peach</option><option value="missav">MISSAV</option><option value="sextb">SEXTB</option><option value="javdatabase">JAVDATABASE</option><option value="javlibrary">JAVLIBRARY</option><option value="fanza">FANZA</option><option value="dmm">DMM</option><option value="javdb">JavDB</option><option value="jable">Jable</option><option value="ro85">85ro</option><option value="njavtv">NJAVTV</option><option value="tktube">TKTube CB</option><option value="external">外部サイト</option></select></label><label>参照URL（HTTPSのみ）<input name="referenceURL" inputmode="url" placeholder="https://..." maxlength="2048" /></label><div id="licensedFields" hidden><label>再生用動画URL（直接の .mp4 / .m3u8 等）<input name="playbackURL" inputmode="url" placeholder="https://media.example.org/movie.mp4" maxlength="2048" /></label><label class="javinfo-consent"><input name="streamRights" type="checkbox" /> 再生が許可された動画URLであることを確認しました</label><p class="note" id="licensedUrlWarning" hidden></p><p class="note">保存すると「▶ アプリ内で再生」ボタンでAPIなしに再生できます。配信オリジンは自動で許可リストに追加されます。</p></div><div class="sheet-actions"><button type="submit" value="save" class="primary">保存</button><button type="button" id="deleteBtn" class="danger" hidden>削除</button></div></form></dialog>
+  <dialog id="playerDialog" class="player-sheet"><div class="player-head"><span id="playerTitle"></span><button class="close" id="playerClose" aria-label="再生画面を閉じる">×</button></div><video id="player" controls playsinline preload="metadata"><track id="subtitleTrack" kind="subtitles" srclang="ja" label="日本語" hidden /></video><iframe id="embeddedPlayer" title="許可された外部埋め込みプレイヤー" hidden sandbox="allow-scripts allow-same-origin allow-presentation" referrerpolicy="no-referrer" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe><div id="subtitleTracks" hidden></div><div class="player-actions"><button id="rewind">−10秒</button><button id="forward">+10秒</button><button id="speed">1.0倍</button><button id="fullScreen">全画面</button><button id="pip">PiP</button><button id="playerSaveLocal">↓ 端末へ保存</button><button id="playerExportFile">⇩ ファイルへ書出</button><button id="loadSubtitle">字幕(.vtt)</button></div><p id="playerHelp" class="note"></p><button id="viewPlaybackDiagnostic" class="player-diag-link" type="button" hidden>⚙ エラー診断を設定で確認</button><a id="embeddedSourceLink" class="embed-source-link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>元サイトで開く</a></dialog>
   <input type="file" id="attachVideoFile" accept="video/*,.mp4,.mov,.m4v,.webm" hidden /><input type="file" id="missavCompatFile" accept=".json,application/json" hidden /><input type="file" id="catalogFile" accept=".json,application/json" hidden /><input type="file" id="videoFile" accept="video/*,.mp4,.mov,.m4v,.webm" multiple hidden /><input type="file" id="subtitleFile" accept=".vtt,text/vtt" hidden />
   <div id="updateNotice" class="update-notice" hidden><span>新しいバージョンを利用できます。再生を停止して更新してください。</span><button type="button" id="reloadApp">更新する</button></div>
   <div role="status" id="toast" class="toast" aria-live="polite"></div>
@@ -162,6 +178,7 @@
   <script src="./media-download.js" defer></script>
   <script src="./javinfo.js" defer></script>
   <script src="./api-key-vault.js" defer></script>
+  <script src="./stream-diagnostics.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

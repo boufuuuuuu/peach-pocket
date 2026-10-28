@@ -15,6 +15,7 @@ const FullBackup = PeachFullBackup;
 const CloudSync = PeachCloudSync;
 const External = PeachExternal;
 const Download = PeachDownload;
+const StreamDiagnostics = PeachStreamDiagnostics;
 let cloudSession=null,cloudBusy=false;
 const DATABASE='peach-pocket-db1';
 const $=id=>document.getElementById(id);
@@ -41,6 +42,43 @@ function writeMeta(key,value){return new Promise((resolve,reject)=>{const tx=db.
 // As with every client-side secret, malicious same-origin scripts could still access it.
 function javinfoCredentials(){return Javinfo.apiKey($('javinfoKey').value);}
 function javinfoStatus(message){$('javinfoStatus').textContent=message;}
+// In-memory diagnostics only. Do not retain media URLs, query strings, or API keys.
+function clearPlaybackDiagnostic(){
+ $('playbackDiagnosticStatus').textContent='この起動中に記録された再生エラーはありません。';
+ $('viewPlaybackDiagnostic').hidden=true;
+}
+function classifyPlaybackFailure(code,online,format,src){
+ const c=Number(code)||0;
+ let origin='';
+ try{origin=new URL(src).origin;}catch{}
+ const out={kind:'不明',detail:'',hint:''};
+ if(!online){out.kind='オフライン';out.detail='iPhoneがネットワークに接続していません。';out.hint='Wi-Fi／モバイル通信を確認してください。';}
+ else if(c===1){out.kind='読み込み中断';out.detail='動画の読み込みが中断されました。';}
+ else if(c===2){
+   out.kind='ネットワーク／配信拒否';
+   if(src&&looksEphemeralURL(src)){out.detail='URLの有効期限切れの可能性が高いです。';out.hint='期限付きURLの場合は、URLを再取得して再登録してください。';}
+   else{out.detail='配信元が通信を拒否したか、CORS・回線の問題の可能性があります。';out.hint='配信元がブラウザ直接再生を許可していない場合があります。参照URLから元サイトで確認してください。';}
+ }
+ else if(c===3){out.kind='デコード失敗';out.detail='Safariが動画データを解釈できませんでした。非標準のHLSセグメント形式の可能性があります。';out.hint='配信形式の問題のため、同じURLでの再試行は効果が薄い場合があります。';}
+ else if(c===4){
+   out.kind='形式・URL非対応';
+   if(format==='hls'){out.detail='HLSプレイリストを処理できませんでした。';out.hint='配信元が非標準の形式を使っている可能性があります。';}
+   else{out.detail='このiPhoneで再生できない形式の可能性があります。';out.hint='配信元が認める形式でURLを再取得してください。';}
+ }
+ else{out.kind='不明なエラー';out.detail='動画の読み込みに失敗しました。';}
+ if(origin)out.detail+=`（配信元: ${origin}）`;
+ return out;
+}
+function reportPlaybackDiagnostic(code, online, format, src){
+ const mediaCode=Number.isInteger(code)?code:0;
+ const cls=classifyPlaybackFailure(mediaCode,online,format,src||'');
+ const time=new Date().toLocaleString('ja-JP');
+ $('playbackDiagnosticStatus').textContent=`最終診断：${time} ／ ${cls.kind}（MediaError ${mediaCode}） ／ 接続：${online?'オンライン':'オフライン'} ／ 形式：${format==='hls'?'HLS':'動画ファイル'}。${cls.detail} ${cls.hint} これだけでは配信側の制限理由を断定できません。再生URL・APIキーは記録しません。`;
+ $('viewPlaybackDiagnostic').hidden=false;
+ return cls;
+}
+function openApiSettings(){setView('settings');$('apiSettingsCard').scrollIntoView({block:'start'});$('javinfoKey').focus({preventScroll:true});}
+function openPlaybackDiagnostics(){closeVideo().then(()=>{setView('settings');$('playbackDiagnosticsCard').scrollIntoView({block:'start'});}).catch(()=>{setView('settings');});}
 
 async function initJavinfoKey(){
  try{const secret=await KeyVault.load(db);if(secret){$('javinfoKey').value=secret;$('javinfoKeyStatus').textContent='この端末に暗号化保存したAPIキーを読み込みました。共有端末では「保存を削除」を押してください。';}}
@@ -143,6 +181,114 @@ async function playJavinfoMovie(item){
     javinfoStatus(`${code}: ${PROVIDERS[provider]}のHLS再生を試行中。実際の再生開始を確認した場合だけ履歴に記録します。`);
   }finally{javinfoBusy=false;$('javinfoSearchBtn').disabled=false;}
 }
+// Expiring/signed stream URLs carry their credentials in parameter names or
+// path segments. Plain query params like ?quality=720p are NOT treated as expiring.
+const EPHEMERAL_URL_PARAMS=new Set(['token','access_token','auth_token','expires','expiry','exp','signature','sig','auth','deadline','validuntil','valid_until','policy','key-pair-id','x-amz-expires','x-amz-signature','x-amz-credential','x-amz-security-token','x-amz-date','x-goog-expires','x-goog-signature']);
+function looksEphemeralURL(raw){
+  try{
+    const u=new URL(raw);
+    for(const name of u.searchParams.keys()){
+      const n=name.toLowerCase();
+      if(EPHEMERAL_URL_PARAMS.has(n)||n.includes('token')||n.includes('expir'))return true;
+    }
+    return /(^|\/)(token|expire[sd]?|signed|auth)(s|d)?(\/|$)/i.test(u.pathname);
+  }catch{return false;}
+}
+function formatSupportNote(raw){
+  try{
+    const path=new URL(raw).pathname.toLowerCase();
+    if(/\.m3u8$/.test(path))return ''; // iOS Safari (WebKit) plays HLS natively
+    const probe=document.createElement('video');
+    const type=/\.webm$/.test(path)?'video/webm':/\.mov$/.test(path)?'video/quicktime':'video/mp4';
+    return probe.canPlayType(type)?'':'このiPhoneでは再生できない形式の可能性があります';
+  }catch{return '';}
+}
+async function allowMediaOrigin(raw){
+  let origin='';
+  try{origin=new URL(raw).origin;}catch{return '';}
+  if(!/^https:\/\/[^/]+$/.test(origin))return '';
+  if(!liveSettings.mediaOrigins.includes(origin)){
+    const next=[...liveSettings.mediaOrigins,origin];
+    if(next.length>15)throw Error('再生許可オリジンが15個の上限を超えています。設定画面で整理してください');
+    liveSettings={...liveSettings,mediaOrigins:next};
+    await writeMeta('liveCatalogSettings',liveSettings);
+    if($('allowedMediaOrigins'))$('allowedMediaOrigins').value=next.join('\n');
+  }
+  return origin;
+}
+// Stream-URL integrity: detect, never silently delete. Records whose provider
+// is not "licensed" but carry stream data are classified by positive evidence:
+//  - "broken":   playbackURL exists but its origin is not allowlisted (or the
+//                URL is invalid) -> cannot play in-app, safe repair candidate.
+//  - "flagonly": rightsConfirmed is set but there is no playbackURL at all.
+//  - "ambiguous": playbackURL exists and its origin IS allowlisted. This may be
+//                legitimate catalog data, so it is only listed for manual review
+//                and never auto-flagged as broken.
+function streamIssueKind(r){
+  const url=(r.playbackURL||'').trim();
+  if(url){
+    let origin='';
+    try{origin=new URL(url).origin;}catch{}
+    if(origin&&liveSettings.mediaOrigins.includes(origin))return 'ambiguous';
+    return 'broken';
+  }
+  return r.rightsConfirmed===true?'flagonly':'';
+}
+function suspectStreamRecords(){
+  return records.filter(r=>r.provider!=='licensed'&&streamIssueKind(r));
+}
+async function notifyRestoredStreamIssues(){
+ try{await writeMeta('streamIssueNoticeV1',null);await notifyStreamIssuesOnce();}catch(e){console.warn('restored-stream diagnostic notice skipped',e);}
+}
+async function notifyStreamIssuesOnce(){
+  if(await readMeta('streamIssueNoticeV1'))return 0;
+  const rows=suspectStreamRecords();
+  await writeMeta('streamIssueNoticeV1',new Date().toISOString());
+  if(rows.length>0)toast(`再生URLの不整合候補が${rows.length}件あります。設定→「不整合チェック」で確認できます`);
+  return rows.length;
+}
+function renderStreamIntegrity(){
+  const box=$('streamIntegrityResults');if(!box)return;box.replaceChildren();
+  const rows=suspectStreamRecords();
+  if(!rows.length){box.append(elem('p','note','不整合の疑いがある作品はありません。'));return;}
+  const groups={broken:[],flagonly:[],ambiguous:[]};
+  for(const r of rows)groups[streamIssueKind(r)].push(r);
+  const desc={
+    broken:'【修復推奨】再生できないURL（配信元が許可リストにない等）',
+    flagonly:'【修復推奨】再生URLがないのに再生許可フラグだけ残っています',
+    ambiguous:'【要確認】正常なカタログデータの可能性もあるため自動判定しません。心当たりのないものだけクリアしてください'
+  };
+  for(const key of ['broken','flagonly','ambiguous']){
+    const list=groups[key];
+    if(!list.length)continue;
+    box.append(elem('p','note',`${desc[key]}：${list.length}件`));
+    for(const r of list){
+      const label=elem('label','javinfo-consent');
+      const cb=document.createElement('input');cb.type='checkbox';cb.checked=false;cb.dataset.id=r.id;
+      label.append(cb);
+      let origin='';
+      try{origin=new URL(r.playbackURL).origin;}catch{}
+      label.append(elem('span','',`${r.title||'名称未設定'}（${PROVIDERS[r.provider]||r.provider}${origin?'・'+origin:''}）`));
+      box.append(label);
+    }
+  }
+  box.append(elem('p','note','安全のため全候補は未選択です。確認した項目だけ選び、明示的に削除してください。'));
+  const clear=elem('button','','選択した作品の再生URLをクリア');
+  clear.addEventListener('click',async()=>{
+    const ids=[...box.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.dataset.id);
+    if(!ids.length){toast('選択されていません');return;}
+    if(!confirm(`${ids.length}件の再生URLと再生許可をクリアします。よろしいですか？`))return;
+    const next=records.map(x=>ids.includes(x.id)?{...x,playbackURL:'',rightsConfirmed:false}:x);
+    await writeAll(next);await reload();renderStreamIntegrity();
+    toast(`${ids.length}件の再生URLをクリアしました`);
+  });
+  box.append(clear);
+}
+// 再生エラー後の通信診断。HTTP応答ヘッダーだけを確認し、本体は取得しない。
+// JavaScriptのCORS可否とSafariのネイティブHLS再生可否を混同しない。
+async function diagnoseStreamURL(raw,options={}){
+ return StreamDiagnostics.probe(raw,options);
+}
 async function playManualStream(){
   if(!$('manualStreamRights').checked)throw Error('再生権限を確認してください');
   const url=Javinfo.directMediaURL($('manualStreamURL').value);
@@ -152,10 +298,24 @@ async function playManualStream(){
   const key=norm(code);
   let item=key?records.find(r=>r.provider==='licensed'&&norm(r.code)===key):null;
   if(!item){const next=canonical({id:uid(),title,code,provider:'licensed',hasLocalCopy:false},uid);await store(next);item=records.find(r=>r.id===next.id)||next;}
-  // The media URL is intentionally ephemeral (signed links might include secrets).
-  // Never put the URL in IndexedDB, backups or sync data.
+  if($('manualStreamSave')?.checked){
+    try{
+      await allowMediaOrigin(url);
+      await store({...item,playbackURL:url,rightsConfirmed:true});
+      item=records.find(r=>r.id===item.id)||item;
+      let note='URLを保存しました。次回以降はライブラリの「▶ アプリ内で再生」から再生できます。';
+      if(looksEphemeralURL(url))note+=' URLに有効期限が含まれている可能性があるため、期限切れの場合は再登録してください。';
+      const fmt=formatSupportNote(url);
+      if(fmt)note+=' '+fmt+'。';
+      $('manualStreamStatus').textContent=note;
+      toast('動画URLをライブラリに保存しました');
+    }catch(e){toast('URL保存に失敗: '+e.message);}
+  }else{
+    // The media URL is intentionally ephemeral (signed links might include secrets).
+    // Never put the URL in IndexedDB, backups or sync data.
+    $('manualStreamStatus').textContent='再生を試しています。再生開始した場合にのみ履歴を記録。URL自体は保存しません。';
+  }
   play(item,url);
-  $('manualStreamStatus').textContent='再生を試しています。再生開始した場合にのみ履歴を記録。URL自体は保存しません。';
 }
 function renderCatalogStatus(){
  $('offlineCatalogStatus').textContent=`端末内カタログ ${offlineCatalogRows.length} 件（動画本体なし・再生許可なし）`;
@@ -501,6 +661,7 @@ async function importFullBackup(file){
   });
   followNames=await readMeta('follows')||[];await initOfflineCatalog();await initLiveSettings();await reload();
   label.textContent=`復元成功：作品${restored.items.length}件、保存動画${mediaFromArchive.size}件。動画を再選択せず再生できるか確認してください。`;
+  await notifyRestoredStreamIssues();
  }finally{btn.disabled=false;$('backupPassword').value='';}
 }
 async function performCloudSync(){
@@ -627,7 +788,25 @@ async function clearAllHistory(){
  await writeAll(next);await reload();toast('履歴を削除しました（保存動画は残っています）');
 }
 function setView(name){for(const id of ['home','favorites','continue','duplicates','settings'])$(id+'View').hidden=id!==name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));$('searchPanel').hidden=name==='settings';}
-function editItem(item){activeId=item?.id||null;const f=$('editForm');f.reset();$('dialogTitle').textContent=item?'作品を編集':'作品を追加';if(item){for(const field of ['title','code','provider','referenceURL'])f.elements[field].value=item[field]||'';f.elements.performers.value=item.performers.join('、');}$('deleteBtn').hidden=!item;$('editDialog').showModal();}
+function toggleLicensedFields(){
+  const f=$('editForm');if(!f)return;
+  const licensed=f.elements.provider.value==='licensed';
+  $('licensedFields').hidden=!licensed;
+  if(licensed)updateLicensedWarning();
+}
+function updateLicensedWarning(){
+  const f=$('editForm');if(!f)return;
+  const raw=f.elements.playbackURL.value.trim();
+  const warn=$('licensedUrlWarning');
+  if(!raw){warn.hidden=true;return;}
+  const msgs=[];
+  if(looksEphemeralURL(raw))msgs.push('有効期限や認証情報が含まれている可能性があります。期限切れの場合は再登録が必要です。');
+  const fmt=formatSupportNote(raw);
+  if(fmt)msgs.push(fmt+'。');
+  warn.textContent=msgs.join(' ');
+  warn.hidden=!msgs.length;
+}
+function editItem(item){activeId=item?.id||null;const f=$('editForm');f.reset();$('dialogTitle').textContent=item?'作品を編集':'作品を追加';if(item){for(const field of ['title','code','provider','referenceURL'])f.elements[field].value=item[field]||'';f.elements.performers.value=item.performers.join('、');f.elements.playbackURL.value=item.playbackURL||'';f.elements.streamRights.checked=item.rightsConfirmed===true&&!!item.playbackURL;}$('deleteBtn').hidden=!item;toggleLicensedFields();$('editDialog').showModal();}
 async function start(item){
  // External navigation must not assign the HTMLVideoElement playback record.
  try{
@@ -640,8 +819,9 @@ async function start(item){
    }
    $('javinfoSearch').value=item.code;
    $('javinfoProvider').value=item.provider;
-   $('javinfoKey').focus();$('javinfoHeading').scrollIntoView({block:'start',behavior:'smooth'});
-   toast('検索した提供元での詳細取得にはjavinfoキーと再生許可の確認が必要です');return;
+   if(!$('javinfoKey').value.trim()) {openApiSettings();toast('再生の詳細取得には設定画面でjavinfo APIキーを登録してください');}
+   else {$('javinfoHeading').scrollIntoView({block:'start',behavior:'smooth'});toast('再生権限のチェックを入れてから詳細を取得してください');}
+   return;
  }
  if(item.provider==='local'){selectedFileItem=item.id;$('videoFile').value='';$('videoFile').click();return;}
  const stream=Catalog.safePlayable(item,liveSettings.mediaOrigins);
@@ -670,7 +850,7 @@ function playEmbedded(item,url){
  $('playerSaveLocal').hidden=true;$('playerExportFile').hidden=true;$('playerHelp').textContent='配信元がiframe埋め込みを許可した場合にのみ表示されます。ブロック・ログイン要求・再生失敗時は元ページを開いてください。埋め込みプレイヤーでは再生位置を取得できません。';
  $('playerDialog').showModal();
 }
-function play(item,url){embedPlaying=false;$('embeddedSourceLink').hidden=true;const frame=$('embeddedPlayer');frame.hidden=true;frame.removeAttribute('src');$('player').hidden=false;document.querySelector('.player-actions').hidden=false;playSession++;playbackBegan=false;const video=$('player');video.pause();video.removeAttribute('src');video.load();currentId=item.id;lastRecordedPosition=null;$('playerSaveLocal').hidden=Boolean(item.hasLocalCopy);$('playerExportFile').hidden=!item.hasLocalCopy;video.src=url;$('playerTitle').textContent=item.title;$('playerHelp').textContent=item.provider==='local'?'動画はサーバーへ送信されません。端末に保存した動画は再起動後も再生できますが、iOS側の容量制限・削除対象となります。':'配信元がブラウザ再生を許可し、iPhoneが形式に対応する場合のみ再生できます。';$('playerDialog').showModal();video.addEventListener('loadedmetadata',function loaded(){video.removeEventListener('loadedmetadata',loaded);if(item.lastPosition>1&&video.duration>item.lastPosition+5)video.currentTime=item.lastPosition;},{once:true});video.play().catch(()=>toast('再生ボタンを押してください'));}
+function play(item,url){$('viewPlaybackDiagnostic').hidden=true;embedPlaying=false;$('embeddedSourceLink').hidden=true;const frame=$('embeddedPlayer');frame.hidden=true;frame.removeAttribute('src');$('player').hidden=false;document.querySelector('.player-actions').hidden=false;playSession++;playbackBegan=false;const video=$('player');video.pause();video.removeAttribute('src');video.load();currentId=item.id;lastRecordedPosition=null;$('playerSaveLocal').hidden=Boolean(item.hasLocalCopy);$('playerExportFile').hidden=!item.hasLocalCopy;video.src=url;$('playerTitle').textContent=item.title;$('playerHelp').textContent=item.provider==='local'?'動画はサーバーへ送信されません。端末に保存した動画は再起動後も再生できますが、iOS側の容量制限・削除対象となります。':'配信元がブラウザ再生を許可し、iPhoneが形式に対応する場合のみ再生できます。';$('playerDialog').showModal();video.addEventListener('loadedmetadata',function loaded(){video.removeEventListener('loadedmetadata',loaded);if(item.lastPosition>1&&video.duration>item.lastPosition+5)video.currentTime=item.lastPosition;},{once:true});video.play().catch(()=>toast('再生ボタンを押してください'));}
 async function recordNativePlaying(){
  if(!currentId||embedPlaying)return;
  const session=playSession;playbackBegan=true;
@@ -808,10 +988,13 @@ async function importJSON(file){
   const result=importRows(sanitized,records,uid);
   if(!confirm(`作品情報を ${result.imported} 件読み込みます（既存データと結合・動画ファイルは含みません）。続けますか？`))return;
   for(const row of result.items){const local=records.find(x=>x.id===row.id);if(local?.hasLocalCopy)row.hasLocalCopy=true;}
-  await writeAll(result.items);await reload();toast(`${result.imported}件の作品を読み込みました`);
+  await writeAll(result.items);await reload();await notifyRestoredStreamIssues();toast(`${result.imported}件の作品を読み込みました`);
 }
 
-async function init(){db=await openDB();await initDevice();await initLiveSettings();await initOfflineCatalog();await initJavinfoKey();await reload();await backfillLegacyFingerprints();$('addBtn').onclick=()=>editItem();$('externalQuickForm').addEventListener('submit',ev=>saveManualExternal(ev).catch(e=>toast('リンク登録に失敗: '+e.message)));$('attachMediaFile').onclick=()=>{$('attachVideoFile').value='';$('attachVideoFile').click();};$('attachVideoFile').addEventListener('change',async ev=>{try{if(ev.target.files?.[0]){const row=await attachVideoToRecord(ev.target.files[0],saveTargetId);$('directMediaStatus').textContent=`端末へ保存しました：${row.title}`;toast('動画ファイルを紐付けました');}}catch(e){$('directMediaStatus').textContent='保存できません：'+e.message;}finally{ev.target.value='';}});$('saveDirectMedia').onclick=()=>downloadSave();$('cancelDirectMedia').onclick=()=>directDownloadAbort?.abort();$('addVideoBtn').onclick=()=>{selectedFileItem=null;$('videoFile').value='';$('videoFile').click();};$('search').oninput=()=>{render();renderSiteLinks();scheduleAutoSearch();};$('javinfoKeySave').onclick=()=>saveJavinfoKey().catch(e=>{$('javinfoKeyStatus').textContent='保存失敗：'+e.message;});
+async function init(){db=await openDB();await initDevice();await initLiveSettings();await initOfflineCatalog();await initJavinfoKey();await reload();try{await notifyStreamIssuesOnce();}catch(e){console.warn('stream issue notice skipped:',e);}await backfillLegacyFingerprints();$('addBtn').onclick=()=>editItem();$('externalQuickForm').addEventListener('submit',ev=>saveManualExternal(ev).catch(e=>toast('リンク登録に失敗: '+e.message)));$('attachMediaFile').onclick=()=>{$('attachVideoFile').value='';$('attachVideoFile').click();};$('attachVideoFile').addEventListener('change',async ev=>{try{if(ev.target.files?.[0]){const row=await attachVideoToRecord(ev.target.files[0],saveTargetId);$('directMediaStatus').textContent=`端末へ保存しました：${row.title}`;toast('動画ファイルを紐付けました');}}catch(e){$('directMediaStatus').textContent='保存できません：'+e.message;}finally{ev.target.value='';}});$('saveDirectMedia').onclick=()=>downloadSave();$('cancelDirectMedia').onclick=()=>directDownloadAbort?.abort();$('addVideoBtn').onclick=()=>{selectedFileItem=null;$('videoFile').value='';$('videoFile').click();};$('search').oninput=()=>{render();renderSiteLinks();scheduleAutoSearch();};$('openApiSettings').onclick=openApiSettings;
+ $('clearPlaybackDiagnostic').onclick=clearPlaybackDiagnostic;
+ $('viewPlaybackDiagnostic').onclick=openPlaybackDiagnostics;
+ $('javinfoKeySave').onclick=()=>saveJavinfoKey().catch(e=>{$('javinfoKeyStatus').textContent='保存失敗：'+e.message;});
  $('javinfoKeyClear').onclick=()=>clearJavinfoKey().catch(e=>{$('javinfoKeyStatus').textContent='削除失敗：'+e.message;});
  $('javinfoSearch').addEventListener('input',()=>{javinfoPage=1;javinfoTerm='';javinfoMore=false;renderJavinfoPages();});
  $('javinfoProvider').addEventListener('change',()=>{javinfoPage=1;javinfoTerm='';javinfoMore=false;javinfoResults=[];renderJavinfoResults();renderJavinfoPages();});
@@ -840,7 +1023,31 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  $('healthBtn').onclick=()=>inspectLibrary().catch(e=>toast('診断に失敗しました: '+e.message));
  $('repairCopiesBtn').onclick=()=>repairCopies().catch(e=>toast('修復に失敗しました: '+e.message));$('saveLiveSettings').onclick=()=>saveLiveSettings().catch(e=>toast('設定保存失敗: '+e.message));$('checkFollows').onclick=checkFollowedReleases;$('provider').onchange=render;document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
  $('editForm').addEventListener('submit',async ev=>{ev.preventDefault();const f=ev.currentTarget,provider=f.elements.provider.value,url=f.elements.referenceURL.value.trim();if(url&&!safeURL(url,provider)){toast('提供元に合うHTTPS URLを登録してください');return;}
- try{await store({...records.find(r=>r.id===activeId),id:activeId||uid(),title:f.elements.title.value,code:f.elements.code.value,performers:f.elements.performers.value,provider,referenceURL:url});$('editDialog').close();toast('保存しました');}catch(e){toast(`保存エラー: ${e.message}`);}});
+ const prev=records.find(r=>r.id===activeId);
+ const providerChanged=!!prev&&prev.provider!==provider;
+ const patch={...prev,id:activeId||uid(),title:f.elements.title.value,code:f.elements.code.value,performers:f.elements.performers.value,provider,referenceURL:url};
+ let streamNote='';
+ if(provider==='licensed'){
+   const streamRaw=f.elements.playbackURL.value.trim();
+   if(streamRaw){
+     const ok=Javinfo.directMediaURL(streamRaw);
+     if(!ok){toast('再生用URLは直接の動画ファイル（.mp4・.m3u8等）のHTTPS URLを指定してください');return;}
+     if(!f.elements.streamRights.checked){toast('再生用URLを保存するには、再生が許可されたURLであることを確認してください');return;}
+     if(looksEphemeralURL(ok))streamNote+=' ※期限付きURLの可能性あり：期限切れ時は再登録してください';
+     const fmt=formatSupportNote(ok);
+     if(fmt)streamNote+=' ※'+fmt;
+     try{await allowMediaOrigin(ok);}catch(e){toast(e.message);return;}
+     patch.playbackURL=ok;patch.rightsConfirmed=true;
+   }else{patch.playbackURL='';patch.rightsConfirmed=false;}
+ }else if(providerChanged){
+   // Provider changed away from licensed: the saved stream URL and its rights
+   // confirmation belonged to the previous provider, so drop them.
+   patch.playbackURL='';patch.rightsConfirmed=false;
+ }
+ try{await store(patch);$('editDialog').close();toast('保存しました'+streamNote);}catch(e){toast(`保存エラー: ${e.message}`);}});
+ $('editForm').elements.provider.addEventListener('change',toggleLicensedFields);
+ $('editForm').elements.playbackURL.addEventListener('input',updateLicensedWarning);
+ $('scanStreamIntegrity').onclick=()=>{try{renderStreamIntegrity();}catch(e){toast(e.message);}};
  $('deleteBtn').onclick=async()=>{if(!activeId||!confirm('この作品情報を削除しますか？'))return;try{await Media.removeWithRecord(db,activeId);}catch(err){toast(`作品を削除できません: ${err.message}`);return;}const tu=thumbnailURLs.get(activeId);if(tu){URL.revokeObjectURL(tu);thumbnailURLs.delete(activeId);}thumbnailFailed.delete(activeId);const u=objUrls.get(activeId);if(u)URL.revokeObjectURL(u);objUrls.delete(activeId);volatileFiles.delete(activeId);$('editDialog').close();await reload();toast('登録を削除しました');};
  $('videoFile').addEventListener('change',async ev=>{try{await importVideoBatch(ev.target.files);}catch(err){toast(`動画の読込に失敗: ${err.message}`);}finally{ev.target.value='';}});
  $('saveDeviceLabel').onclick=async()=>{
@@ -864,9 +1071,20 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  $('player').addEventListener('timeupdate',()=>{if(Date.now()-lastSavedAt>8000){lastSavedAt=Date.now();savePosition().catch(()=>{});}});$('player').addEventListener('pause',()=>savePosition().catch(()=>{}));$('player').addEventListener('ended',()=>savePosition().then(render).catch(()=>{}));$('player').addEventListener('error',()=>{
   if(!$('player').src)return;
   const item=records.find(r=>r.id===currentId);
-  $('playerHelp').textContent=Javinfo.playbackDiagnosis($('player').error?.code,navigator.onLine,new URL($('player').src).pathname.endsWith('.m3u8')?'hls':'file')+' 配信側の制限を回避しません。再生履歴は増やしません。';
+  const src=$('player').currentSrc||$('player').src;
+  const format=(()=>{try{return new URL(src).pathname.toLowerCase().endsWith('.m3u8')?'hls':'file';}catch{return 'file';}})();
+  const cls=reportPlaybackDiagnostic($('player').error?.code,navigator.onLine,format,src);
+  $('playerHelp').textContent=`${cls.kind}: ${cls.detail} ${cls.hint} 詳細は「⚙ エラー診断を設定で確認」で参照できます。再生履歴は増やしません。`;
   if(item?.referenceURL){const link=$('embeddedSourceLink');link.href=item.referenceURL;link.hidden=false;}
   toast('この動画を再生できません。元サイトへのリンクをご確認ください');
+  // 回線診断の結果は参考情報。CORS失敗とHLS再生不可を同一視しない。
+  const session=playSession;
+  diagnoseStreamURL(src).then(d=>{
+    if(session!==playSession||!$('playerDialog').open)return;
+    const net=StreamDiagnostics.describe(d);
+    $('playerHelp').textContent+=` ${net}`;
+    $('playbackDiagnosticStatus').textContent+=` ${net}`;
+  }).catch(()=>{});
  });
  $('storageBtn').onclick=async()=>{
    if(!navigator.storage?.estimate){toast('容量情報に対応していません');return;}
