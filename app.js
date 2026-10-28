@@ -947,7 +947,7 @@ function resetRouteDiagnostic(){
  $('revealPlaybackUrls').hidden=true;hidePrivatePlaybackURLs();
 }
 function showRouteDiagnostic(){
- routeReport=routeTrace.report();
+ routeReport=routeTrace.report($('siteVersion').textContent);
  $('playbackRouteSummary').textContent=routeReport;
  $('playbackRouteSummary').hidden=false;
  $('copyPlaybackRoute').hidden=false;

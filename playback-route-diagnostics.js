@@ -1,4 +1,4 @@
-/* 桃息吐息 v1.10.10: privacy-preserving native-media stage diagnostics.
+/* 桃息吐息: privacy-preserving native-media stage diagnostics.
  * Tracks milestones and NON-SENSITIVE URL structure only:
  * NEVER stores full stream URLs, headers, keys, or media bytes.
  * A stage observation narrows failure timing; it does not prove its root cause.
@@ -63,9 +63,12 @@
    const urlNote=u?` / 設定URL概要: ${u.host}・${u.format}・クエリ${u.hasQuery?'あり':'なし'}`:'';
    return `候補${a.order}（${LABELS[a.kind]||LABELS.directHls}）: ${stage} / ${error}${a.interrupted?' / 待機・停滞あり':''}${urlNote}`;
   }
-  function report(){
+  function report(appVersion){
    const list=entries();
-   return ['桃息吐息 v1.10.10・再生経路診断（URL概要のみ・機密値なし）',
+   // This label is supplied by the current app footer: no duplicated version constant.
+   const version=typeof appVersion==='string'&&/^v\d+\.\d+\.\d+$/.test(appVersion.trim())
+    ?' '+appVersion.trim():'';
+   return ['桃息吐息'+version+'・再生経路診断（URL概要のみ・機密値なし）',
     `試行候補: ${list.length}件`,...list.map(label),
     'URL概要はSafariに設定したURLのホスト・形式・クエリ有無のみ。リダイレクト先やセグメントURLは未確認。',
     '判定: この記録はSafariの読み込み段階のみ。HTTP拒否・CORS・HLS構造・セグメント・コーデックの原因は確定できません。',
