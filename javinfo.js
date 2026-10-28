@@ -52,9 +52,11 @@
   const metadata=item(body||{},{...context,...payload});
   if(!metadata)throw Error('作品詳細を取得できませんでした');
   const streams=body?.extra?.streams;
-  const options=[streams?.master,...(Array.isArray(streams?.variants)?streams.variants:[])];
-  const hls=options.map(streamURL).find(Boolean)||'';
-  return {metadata,hls,available:Boolean(hls),source:metadata.provider};
+  // Do not persist signed URLs in IndexedDB. Preserve distinct API-provided
+  // native-HLS candidates in memory for pre-play fallback only.
+  const hlsCandidates=PeachHls.candidates(streams?.master,streams?.variants,streamURL);
+  return {metadata,hls:hlsCandidates[0]||'',hlsCandidates,
+    available:hlsCandidates.length>0,source:metadata.provider};
  }
  function pageNumber(value){const n=Number(value);if(!Number.isInteger(n)||n<1||n>50)throw Error('ページは1〜50を指定してください');return n;}
  function uniqueResults(rows){const seen=new Set();return (rows||[]).filter(r=>{const k=String(r.code||r.referenceURL||r.title||'').trim().toLowerCase();if(!k||seen.has(k))return false;seen.add(k);return true;});}
