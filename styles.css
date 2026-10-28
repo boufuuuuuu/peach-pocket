@@ -109,7 +109,7 @@
 .player-diag-link[hidden]{display:none}
 
 
-/* v1.10.7 API-free startup: visible above optional provider search. */
+/* v1.10.8 API-free startup: visible above optional provider search. */
 .quickplay-panel{background:linear-gradient(145deg,#322732,#1d202a);border:1px solid #a16684;border-radius:16px;padding:15px;margin:14px 0 10px;display:grid;gap:9px;scroll-margin-top:14px}
 .quickplay-panel h2{font-size:19px;margin:0;color:#ffe3ef}
 .quickplay-panel .note{margin:0;font-size:12px;line-height:1.55}
@@ -121,3 +121,6 @@
 .javinfo-optional[open]>.javinfo-panel{margin:10px 0 0}
 #manualStreamPanel{scroll-margin-top:12px}
 @media(max-width:345px){.quickplay-buttons{grid-template-columns:1fr}.quickplay-buttons .quickplay-main{grid-column:auto}}
+
+/* v1.10.8: retain both baseline results side by side when returning from player. */
+.hls-test-result{background:#282c39;border-left:3px solid #be7e9c;border-radius:7px;padding:8px 10px;margin:0;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
