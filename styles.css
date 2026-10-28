@@ -107,3 +107,17 @@
 .diag-card #playbackDiagnosticStatus{background:#171922;border:1px solid var(--line);border-radius:10px;padding:12px;color:var(--text);overflow-wrap:anywhere}
 .player-diag-link{background:#302b3c;color:var(--accent);border:1px solid #72546a;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;font-weight:700}
 .player-diag-link[hidden]{display:none}
+
+
+/* v1.10.6 API-free startup: visible above optional provider search. */
+.quickplay-panel{background:linear-gradient(145deg,#322732,#1d202a);border:1px solid #a16684;border-radius:16px;padding:15px;margin:14px 0 10px;display:grid;gap:9px;scroll-margin-top:14px}
+.quickplay-panel h2{font-size:19px;margin:0;color:#ffe3ef}
+.quickplay-panel .note{margin:0;font-size:12px;line-height:1.55}
+.quickplay-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.quickplay-buttons button{min-width:0;min-height:46px;padding:9px 8px;font-size:12px;font-weight:750;border-radius:11px;background:#323747;border:1px solid #777385;color:#fff}
+.quickplay-buttons .quickplay-main{grid-column:1/-1;background:var(--accent);border:0;color:#261822;font-size:15px;min-height:52px}
+.javinfo-optional{margin-top:15px;border:1px solid var(--line);border-radius:13px;padding:10px;background:var(--surface)}
+.javinfo-optional>summary{font-size:13px;font-weight:750;cursor:pointer;padding:8px 3px;min-height:30px}
+.javinfo-optional[open]>.javinfo-panel{margin:10px 0 0}
+#manualStreamPanel{scroll-margin-top:12px}
+@media(max-width:345px){.quickplay-buttons{grid-template-columns:1fr}.quickplay-buttons .quickplay-main{grid-column:auto}}

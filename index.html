@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
-  <title>桃息吐息 | iPhone動画ライブラリ v1.10.5</title>
+  <title>桃息吐息 | iPhone動画ライブラリ v1.10.6</title>
 </head>
 <body>
   <main class="layout" id="app">
@@ -40,6 +40,27 @@
     </details>
     <section id="searchPanel" class="search-panel"><label for="search" class="sr-only">作品検索</label><input id="search" type="search" placeholder="品番・作品名・出演者で検索" autocomplete="off" /><select id="provider" aria-label="提供元"><option value="">すべて</option><option value="local">端末内</option><option value="licensed">許可済みURL</option><option value="peach">Peach</option><option value="missav">MISSAV</option><option value="sextb">SEXTB</option><option value="javdatabase">JAVDATABASE</option><option value="javlibrary">JAVLIBRARY</option><option value="fanza">FANZA</option><option value="dmm">DMM</option><option value="javdb">JavDB</option><option value="jable">Jable</option><option value="ro85">85ro</option><option value="njavtv">NJAVTV</option><option value="tktube">TKTube CB</option><option value="external">外部サイト</option></select></section>
     <section id="homeView" class="view">
+      <section class="quickplay-panel" aria-labelledby="quickPlayHeading">
+        <h2 id="quickPlayHeading">▶ APIなしですぐ再生</h2>
+        <p class="note">最初の動作確認には同梱の短いテスト動画を使用します。iPhoneの動画や利用許可済みの直接動画URLもAPIキー不要です。</p>
+        <div class="quickplay-buttons">
+          <button id="quickResume" class="quickplay-main" type="button" hidden>▶ 保存済み動画を再生</button>
+          <button id="quickSamplePlay" class="quickplay-main" type="button">▶ サンプルを再生（通信不要）</button>
+          <button id="quickLocalPlay" type="button">📱 iPhoneから動画を選ぶ</button>
+          <button id="quickOpenStream" type="button">🔗 直接動画URLを入力</button>
+        </div>
+        <p class="note" id="quickPlayStatus" aria-live="polite">サンプルは動作確認専用で、作品ライブラリや視聴履歴には登録しません。実際の動画を選ぶと従来どおり再生記録を残します。</p>
+      </section>
+        <details class="external-quick" id="manualStreamPanel"><summary>▶ APIなしで再生（許可済みMP4 / HLS URL）</summary>
+          <p class="note">自分が再生権限を持つ、直接のHTTPS動画ファイル／HLSプレイリストのURLだけを入力。動画ページURL、DRM、サイト側のアクセス制限には非対応。</p>
+          <label for="manualStreamTitle">作品名</label><input id="manualStreamTitle" maxlength="200" placeholder="作品名（任意）" />
+          <label for="manualStreamCode">品番</label><input id="manualStreamCode" maxlength="64" placeholder="ABCD-123（任意）" />
+          <label for="manualStreamURL">直接動画URL（.mp4・.m3u8等）</label><input id="manualStreamURL" type="url" placeholder="https://media.example.org/movie.mp4" autocomplete="off" />
+          <label class="javinfo-consent"><input id="manualStreamRights" type="checkbox" /> 再生が許可された動画URLです</label>
+          <label class="javinfo-consent"><input id="manualStreamSave" type="checkbox" /> このURLをライブラリに保存して、次回以降もアプリ内で再生する（配信オリジンを自動で許可リストに追加します）</label>
+          <button id="manualStreamPlay" type="button" class="live-primary">▶ 動画をアプリ内で再生</button><p id="manualStreamStatus" class="note" aria-live="polite">APIキー不要。再生開始したときだけ履歴に残ります。「保存」にチェックを入れない限り、URLは保存されません。</p>
+        </details>
+      <details class="javinfo-optional" id="javinfoPanel"><summary>🔎 APIを使った作品検索（任意・従来機能）</summary>
       <section class="javinfo-panel" aria-labelledby="javinfoHeading">
         <div class="javinfo-heading"><h2 id="javinfoHeading">🔎 作品検索・再生（複数提供元）</h2><span class="privacy-chip">javinfo API</span></div>
         <p class="note">品番・出演者・作品名で検索できます。APIキーが必要です。検索・詳細取得にはjavinfo側で従量課金が発生する場合があります。</p>
@@ -54,16 +75,8 @@
         <div id="javinfoResults" class="live-results"></div>
         <div class="javinfo-pages" id="javinfoPages" hidden><button id="javinfoPrev" type="button">← 前のページ</button><span id="javinfoPageLabel">1ページ</span><button id="javinfoNext" type="button">次のページ →</button></div>
         <p class="note">再生成功時にのみ視聴履歴を記録。MISSAV/SEXTBのHLSは非標準の配信形式や提供元制限によりiPhoneで再生できない場合があります。</p>
-        <details class="external-quick" id="manualStreamPanel"><summary>▶ APIなしで再生（許可済みMP4 / HLS URL）</summary>
-          <p class="note">自分が再生権限を持つ、直接のHTTPS動画ファイル／HLSプレイリストのURLだけを入力。動画ページURL、DRM、サイト側のアクセス制限には非対応。</p>
-          <label for="manualStreamTitle">作品名</label><input id="manualStreamTitle" maxlength="200" placeholder="作品名（任意）" />
-          <label for="manualStreamCode">品番</label><input id="manualStreamCode" maxlength="64" placeholder="ABCD-123（任意）" />
-          <label for="manualStreamURL">直接動画URL（.mp4・.m3u8等）</label><input id="manualStreamURL" type="url" placeholder="https://media.example.org/movie.mp4" autocomplete="off" />
-          <label class="javinfo-consent"><input id="manualStreamRights" type="checkbox" /> 再生が許可された動画URLです</label>
-          <label class="javinfo-consent"><input id="manualStreamSave" type="checkbox" /> このURLをライブラリに保存して、次回以降もアプリ内で再生する（配信オリジンを自動で許可リストに追加します）</label>
-          <button id="manualStreamPlay" type="button" class="live-primary">▶ 動画をアプリ内で再生</button><p id="manualStreamStatus" class="note" aria-live="polite">APIキー不要。再生開始したときだけ履歴に残ります。「保存」にチェックを入れない限り、URLは保存されません。</p>
-        </details>
-      </section>
+
+      </section></details>
       <div class="section-heading"><h2>マイライブラリ</h2><small id="count"></small></div><div id="library" class="items"></div>
       <details class="live-panel" id="livePanel" aria-label="外部サイト検索"><summary class="live-summary">4サイト検索・外部カタログを開く <span>任意設定</span></summary><div class="live-panel-inner">
         <div class="live-head"><h2>4サイト検索</h2><span class="privacy-chip">外部連携は任意設定</span></div>
@@ -153,7 +166,7 @@
         <button id="repairCopiesBtn" type="button" hidden>保存フラグだけ修復（動画は削除しない）</button><button id="clearMediaBtn" type="button">端末保存した動画本体だけ削除</button><p class="note" id="importErrors" aria-live="polite"></p><button id="persistBtn" type="button">保存領域の保護を要求</button><button id="updateBtn" type="button">アプリの更新を確認</button><p class="note" id="storageStatus" aria-live="polite"></p><input id="backupFile" type="file" accept=".json,application/json" hidden /><p class="note" id="sourceNote"></p><p class="note">チェックを付けて端末内保存した動画は再起動後も選択不要ですが、iOSの保存容量制限・自動削除・アプリデータ消去の対象になり得ます。元の動画を別途保管してください。</p><p class="note">本アプリは個人管理用です。外部サイトの動画抽出、DRM解除、無許可の自動取得は行いません。</p></div></section>
     <footer class="site-credit" id="siteCredit" aria-label="制作者とバージョン">
       <span class="site-credit-name">プログラム by depa</span>
-      <span class="site-credit-version" id="siteVersion">v1.10.5</span>
+      <span class="site-credit-version" id="siteVersion">v1.10.6</span>
     </footer>
   </main>
   <nav class="tabbar" aria-label="メインナビゲーション"><button class="tab active" data-view="home"><span>⌂</span>ホーム</button><button class="tab" data-view="favorites"><span>♡</span>お気に入り</button><button class="tab" data-view="continue"><span>▶</span>履歴</button><button class="tab" data-view="duplicates"><span>≡</span>重複</button><button class="tab" data-view="settings"><span>⚙</span>設定</button></nav>
