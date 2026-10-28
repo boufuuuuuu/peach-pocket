@@ -142,3 +142,8 @@
 .secondary-controls{flex-wrap:wrap}
 .secondary-controls .original-watch-link{color:var(--accent);font-weight:700;text-underline-offset:3px}
 .javinfo-result-actions .original-watch-link{border-color:var(--accent);color:var(--accent)}
+
+/* v1.10.13: actionable but evidence-bounded CDN denial guidance. */
+.cdn-access-notice:not([hidden]){display:block;background:#322b39;border-left:3px solid var(--accent);border-radius:9px;padding:11px 12px;line-height:1.65;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+#manualHlsRetry:not([hidden]){border-color:#c08baa}
+#confirmDirectBlock:not([hidden]){border-style:dashed}

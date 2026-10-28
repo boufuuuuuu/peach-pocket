@@ -1032,6 +1032,49 @@ function play(item,url,options={}){
    } // Other failures are handled by the media error event, without mislabelling as autoplay.
  });
 }
+// Multiple .m3u8 variants on the same host may share one upstream denial.
+ // Avoid silently repeating failed access; keep every valid candidate available
+ // through an explicit user action. Different hosts can still auto-fallback.
+function holdForManualSameHostRetry(code,sourceURL){
+ if(Number(code)!==4||playbackBegan||activeHlsIndex<0||
+    activeHlsIndex+1>=activeHlsCandidates.length)return false;
+ const a=Route.summary(sourceURL),b=Route.summary(activeHlsCandidates[activeHlsIndex+1]);
+ return Boolean(a&&b&&a.host===b.host);
+}
+function showCdnAccessGuidance(sourceURL,isHls){
+ const notice=$('cdnAccessNotice'),info=Route.summary(sourceURL);
+ if(!isHls||!info){notice.hidden=true;notice.textContent='';$('confirmDirectBlock').hidden=true;return;}
+ notice.textContent=`配信元 ${info.host} のHLSをSafari内で再生できませんでした。`+
+  '\n※ Safariの別タブで「Sorry, you have been blocked」などの拒否画面を見た場合、それは別タブでの直接アクセスの観測結果です。このアプリ内video要素に返ったHTTP状態までは示しません。'+
+  '\n元サイトの利用が可能なら「↗ 元サイトで再生」を使用してください。広告ページや不審な案内で個人情報・アプリのインストールを求められても応じないでください。';
+ notice.hidden=false;
+ $('confirmDirectBlock').hidden=false;
+ $('confirmDirectBlock').disabled=false;
+}
+function confirmBrowserDirectBlock(){
+ const source=$('player').currentSrc||$('player').src;
+ if(!routeTrace.markDirectBlock(source)){toast('外部HTTPS動画URLを確認できません');return;}
+ showRouteDiagnostic();
+ $('confirmDirectBlock').disabled=true;
+ $('cdnAccessNotice').textContent+='\n✓ 利用者が別タブでのアクセス拒否を確認したことを、今回の診断に追記しました（この起動中のみ・URL全文は保存しません）。';
+}
+async function inspectStreamOnDemand(){
+ const source=$('player').currentSrc||$('player').src;
+ if(!$('playerDialog').open||!Route.summary(source))return;
+ const currentSession=playSession,button=$('manualNetworkProbe');
+ button.disabled=true;button.textContent='通信を診断中…';
+ try{
+  const [net,manifest]=await Promise.all([diagnoseStreamURL(source),Hls.inspect(source)]);
+  if(currentSession!==playSession||!$('playerDialog').open)return;
+  const result=StreamDiagnostics.describe(net)+' '+Hls.describe(manifest);
+  $('cdnAccessNotice').textContent+='\n'+result;
+  $('playbackDiagnosticStatus').textContent+='\n'+result;
+ }catch{
+  if(currentSession===playSession&&$('playerDialog').open)$('cdnAccessNotice').textContent+='\n通信診断を完了できませんでした。';
+ }finally{
+  if(currentSession===playSession){button.textContent='🔍 HTTP・HLS診断を手動実行（任意）';button.disabled=false;}
+ }
+}
 function tryNextHlsCandidate(){
  if(playbackBegan||activeHlsIndex<0||activeHlsIndex+1>=activeHlsCandidates.length)return false;
  activeHlsIndex++;playSession++;resetPlaybackAccounting();
@@ -1398,6 +1441,9 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
   catch{toast('コピーが許可されませんでした。画面の診断結果を長押しで選択してください');}
  };
  $('revealPlaybackUrls').onclick=togglePrivatePlaybackURLs;
+ $('manualHlsRetry').onclick=()=>{if(!tryNextHlsCandidate()){$('manualHlsRetry').hidden=true;toast('これ以上の画質候補はありません');}};
+ $('confirmDirectBlock').onclick=confirmBrowserDirectBlock;
+ $('manualNetworkProbe').onclick=()=>void inspectStreamOnDemand();
  $('player').addEventListener('playing',recordNativePlaying);
  $('player').addEventListener('timeupdate',()=>{
   collectPlaybackTime();
@@ -1418,8 +1464,12 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  $('player').addEventListener('error',()=>{
   const video=$('player');if(!video.src||!currentId)return;
   collectPlaybackTime(true);
-  if(!demoPlayback)routeTrace.failed(Number(video.error?.code)||0);
-  if(tryNextHlsCandidate())return;
+  const mediaCode=Number(video.error?.code)||0;
+  if(!demoPlayback)routeTrace.failed(mediaCode);
+  const sourceURL=video.currentSrc||video.src;
+  const manualRetry=!demoPlayback&&holdForManualSameHostRetry(mediaCode,sourceURL);
+  if(!manualRetry && tryNextHlsCandidate())return;
+  $('manualHlsRetry').hidden=!manualRetry;
   if(playbackBegan)savePosition().catch(()=>{});
   const item=records.find(r=>r.id===currentId);
   const src=video.currentSrc||video.src;
@@ -1441,15 +1491,12 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
   $('playerHelp').textContent=`${prefix} ${cls.kind}: ${cls.detail} ${cls.hint}`;
   const hasSource=!demoPlayback&&showPlaybackSourceLink(item||activePlayerItem);
   toast(hasSource?'動画を再生できません。「元サイトで再生」を利用できます。':'動画を再生できません。診断情報を確認してください。');
-  const session=playSession;
   if(demoPlayback)return; // Native playback events alone determine the baseline result.
-  Promise.all([diagnoseStreamURL(src),format==='hls'?Hls.inspect(src):Promise.resolve({status:'skipped'})])
-   .then(([net,manifest])=>{
-    if(session!==playSession||!$('playerDialog').open)return;
-    const note=StreamDiagnostics.describe(net)+(format==='hls'?' '+Hls.describe(manifest):'');
-    $('playerHelp').textContent+=' '+note;
-    $('playbackDiagnosticStatus').textContent+=' '+note;
-   }).catch(()=>{});
+  showCdnAccessGuidance(src,format==='hls');
+  if(manualRetry)$('cdnAccessNotice').textContent+='\n同じ配信元の次の画質候補への自動再試行を止めました。試す場合は「別画質のHLS候補を手動で試す」を押してください。';
+  // No further CDN requests are triggered automatically after a failed video load.
+  // HTTP status inspection is explicit and may be CORS-unverifiable.
+  $('manualNetworkProbe').hidden=format!=='hls'||!Route.summary(src);
  });
  $('storageBtn').onclick=async()=>{
    if(!navigator.storage?.estimate){toast('容量情報に対応していません');return;}

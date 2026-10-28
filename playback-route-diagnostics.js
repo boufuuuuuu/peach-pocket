@@ -28,7 +28,7 @@
  }
 
  function session(){
-  let attempts=[],current=null;
+  let attempts=[],current=null,reportedBlockHost='';
   function begin(kind,sourceURL){
    if(attempts.length>=MAX_ATTEMPTS)return false;
    current={kind:Object.prototype.hasOwnProperty.call(LABELS,kind)?kind:'directHls',
@@ -40,6 +40,13 @@
   }
   function advanced(){if(current)current.progressed=true;}
   function failed(code){if(current)current.error=Number.isInteger(code)&&code>=1&&code<=4?code:0;}
+  // Explicit user observation of a security block page in Safari address bar.
+  // This is NOT an observed HTTP response from the application's video element.
+  function markDirectBlock(raw){
+   const u=summary(raw);
+   if(!u)return false;
+   reportedBlockHost=u.host;return true;
+  }
   function entries(){
    return attempts.map((a,i)=>({
     order:i+1,kind:a.kind,urlInfo:a.urlInfo,
@@ -70,12 +77,13 @@
     ?' '+appVersion.trim():'';
    return ['桃息吐息'+version+'・再生経路診断（URL概要のみ・機密値なし）',
     `試行候補: ${list.length}件`,...list.map(label),
+    ...(reportedBlockHost?[`利用者の手動確認: ${reportedBlockHost} の動画URLをSafariのアドレス欄から開くとアクセス拒否画面が表示された（利用者申告）。アプリ内video要素のHTTP応答は未確認。`]:[]),
     'URL概要はSafariに設定したURLのホスト・形式・クエリ有無のみ。リダイレクト先やセグメントURLは未確認。',
     '判定: この記録はSafariの読み込み段階のみ。HTTP拒否・CORS・HLS構造・セグメント・コーデックの原因は確定できません。',
     '比較: 標準HLSが成功していても外部配信での再生成功は保証されません。'].join('\n');
   }
-  function reset(){attempts=[];current=null;}
-  return Object.freeze({begin,observed,advanced,failed,entries,report,reset});
+  function reset(){attempts=[];current=null;reportedBlockHost='';}
+  return Object.freeze({begin,observed,advanced,failed,markDirectBlock,entries,report,reset});
  }
  return Object.freeze({session,summary});
 });

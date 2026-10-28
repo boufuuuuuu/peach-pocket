@@ -1,4 +1,4 @@
-const CACHE='momoiki-pwa-v1.10.12';
+const CACHE='momoiki-pwa-v1.10.13';
 const ASSETS=['./','./index.html','./styles.css','./app.js','./backup.js','./core.js','./media-store.js','./stats.js','./provider-live.js','./catalog-model.js','./catalog-import.js','./catalog-harvest.js','./missav-compat.js','./library-health.js','./full-backup.js','./cloud-sync.js','./external-history.js','./media-download.js','./hls-support.js','./playback-session.js','./playback-route-diagnostics.js','./javinfo.js','./api-key-vault.js','./stream-diagnostics.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./sample.mp4'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('momoiki-pwa-')&&k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()])));
