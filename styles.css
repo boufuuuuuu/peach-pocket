@@ -125,8 +125,15 @@
 /* v1.10.8: retain both baseline results side by side when returning from player. */
 .hls-test-result{background:#282c39;border-left:3px solid #be7e9c;border-radius:7px;padding:8px 10px;margin:0;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 
-/* v1.10.9: safe playback route evidence, no stream URLs or credentials. */
+/* v1.10.10: safe playback route evidence, no stream URLs or credentials. */
 .route-trace:not([hidden]){display:block;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;padding:11px 12px;background:#171922;border:1px solid var(--line);border-radius:10px;color:var(--muted);font:12px/1.65 ui-monospace,SFMono-Regular,monospace}
 .route-copy:not([hidden]){display:block;width:100%;margin:8px 0;padding:11px;border:1px solid var(--line);border-radius:10px;background:#343747;color:var(--text);font-weight:700}
 .embed-source-link:not([hidden]){display:block;width:100%;text-align:center;padding:13px 12px;font-size:14px}
 #playbackDiagnosticStatus{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* v1.10.10: URL inspection is opt-in, local-only, and always collapsible. */
+.private-urls{
+  max-height:220px;overflow:auto;overflow-wrap:anywhere;word-break:break-all;
+  border:1px solid var(--border, #626577);padding:12px;border-radius:12px;
+  user-select:text;-webkit-user-select:text;
+}

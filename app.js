@@ -96,7 +96,7 @@ function reportPlaybackDiagnostic(code, online, format, src){
  const mediaCode=Number.isInteger(code)?code:0;
  const cls=classifyPlaybackFailure(mediaCode,online,format,src||'');
  const time=new Date().toLocaleString('ja-JP');
- $('playbackDiagnosticStatus').textContent=`最終診断：${time} ／ ${cls.kind}（MediaError ${mediaCode}） ／ 接続：${online?'オンライン':'オフライン'} ／ 形式：${format==='hls'?'HLS':'動画ファイル'}。${cls.detail} ${cls.hint} これだけでは配信側の制限理由を断定できません。再生URL・APIキーは記録しません。`;
+ $('playbackDiagnosticStatus').textContent=`最終診断：${time} ／ ${cls.kind}（MediaError ${mediaCode}） ／ 接続：${online?'オンライン':'オフライン'} ／ 形式：${format==='hls'?'HLS':'動画ファイル'}。${cls.detail} ${cls.hint} これだけでは配信側の制限理由を断定できません。再生URL全文・APIキーは診断文に記録しません。`;
  $('viewPlaybackDiagnostic').hidden=false;
  return cls;
 }
@@ -918,18 +918,50 @@ function playEmbedded(item,url){
 function resetPlaybackAccounting(){
  playbackClock=Playback.session();lastSavedAt=0;playbackBegan=false;
 }
-// Per-attempt browser-stage evidence only. Never include media URLs or API secrets.
-function startRouteAttempt(kind){routeTrace.begin(kind);}
+// Routine diagnostics include safe URL structure, never full signed URLs.
+function startRouteAttempt(kind,sourceURL){routeTrace.begin(kind,sourceURL);}
+function hidePrivatePlaybackURLs(){
+ const node=$('privatePlaybackUrls'),btn=$('revealPlaybackUrls');
+ node.textContent='';node.hidden=true;
+ btn.textContent='🔒 完全URLを端末上で一時表示（共有注意）';
+ btn.setAttribute('aria-expanded','false');
+}
 function resetRouteDiagnostic(){
  routeTrace=Route.session();routeReport='';
  $('playbackRouteSummary').hidden=true;$('playbackRouteSummary').textContent='';
  $('copyPlaybackRoute').hidden=true;
+ $('revealPlaybackUrls').hidden=true;hidePrivatePlaybackURLs();
 }
 function showRouteDiagnostic(){
  routeReport=routeTrace.report();
  $('playbackRouteSummary').textContent=routeReport;
  $('playbackRouteSummary').hidden=false;
  $('copyPlaybackRoute').hidden=false;
+ // The URLs are only already-in-memory active playback sources.
+ // No requests, IndexedDB writes, localStorage, or automatic copying.
+ $('revealPlaybackUrls').hidden=demoPlayback||embedPlaying||!currentId;
+}
+function togglePrivatePlaybackURLs(){
+ const node=$('privatePlaybackUrls'),btn=$('revealPlaybackUrls');
+ if(!node.hidden){hidePrivatePlaybackURLs();return;}
+ if(demoPlayback||embedPlaying||!currentId)return;
+ const count=routeTrace.entries().length;
+ const raw=activeHlsCandidates.length?activeHlsCandidates.slice(0,count):
+  [$('player').getAttribute('src')||''];
+ const valid=raw.filter(url=>{
+  try{const u=new URL(url);return u.protocol==='https:'&&!u.username&&!u.password;}
+  catch{return false;}
+ });
+ if(!valid.length){
+  node.textContent='HTTPSの外部動画URLは取得できませんでした。';
+ }else{
+  node.textContent='⚠️ 以下はSafariに設定したURLです（最終転送先ではありません）。\n'
+   +'署名・認証情報が含まれる可能性があります。SNSやチャットに貼らないでください。\n\n'
+   +valid.map((url,i)=>`候補${i+1}: ${url}`).join('\n\n');
+ }
+ node.hidden=false;
+ btn.textContent='🔒 完全URLの表示を消す';
+ btn.setAttribute('aria-expanded','true');
 }
 
 function playSampleVideo(){
@@ -957,7 +989,7 @@ function play(item,url,options={}){
  resetRouteDiagnostic();
  if(!demoPlayback){
   const isHls=(()=>{try{return /\.m3u8$/i.test(new URL(url).pathname);}catch{return false;}})();
-  startRouteAttempt(isHls?(activeHlsKinds[activeHlsIndex]||'directHls'):'directFile');
+  startRouteAttempt(isHls?(activeHlsKinds[activeHlsIndex]||'directHls'):'directFile',url);
  }
  $('playerSaveLocal').hidden=demoPlayback||Boolean(item.hasLocalCopy);
  $('playerExportFile').hidden=demoPlayback||!item.hasLocalCopy;
@@ -989,7 +1021,7 @@ function play(item,url,options={}){
 function tryNextHlsCandidate(){
  if(playbackBegan||activeHlsIndex<0||activeHlsIndex+1>=activeHlsCandidates.length)return false;
  activeHlsIndex++;playSession++;resetPlaybackAccounting();
- startRouteAttempt(activeHlsKinds[activeHlsIndex]||'variant');
+ startRouteAttempt(activeHlsKinds[activeHlsIndex]||'variant',activeHlsCandidates[activeHlsIndex]);
  const video=$('player'),url=activeHlsCandidates[activeHlsIndex];$('playerStart').hidden=true;
  video.pause();video.removeAttribute('src');video.load();
  video.removeAttribute('crossorigin');video.src=url;
@@ -1348,9 +1380,10 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  }
  $('copyPlaybackRoute').onclick=async()=>{
   if(!routeReport)return;
-  try{await navigator.clipboard.writeText(routeReport);toast('機密URLを含まない診断結果をコピーしました');}
+  try{await navigator.clipboard.writeText(routeReport);toast('署名やトークンを含まない診断結果をコピーしました');}
   catch{toast('コピーが許可されませんでした。画面の診断結果を長押しで選択してください');}
  };
+ $('revealPlaybackUrls').onclick=togglePrivatePlaybackURLs;
  $('player').addEventListener('playing',recordNativePlaying);
  $('player').addEventListener('timeupdate',()=>{
   collectPlaybackTime();
