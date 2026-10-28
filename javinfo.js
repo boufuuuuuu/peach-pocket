@@ -3,9 +3,11 @@
  * Only the service's published /query and /movie endpoints are accessed.
  */
 (function(root,factory){
- const api=factory(typeof module==='object'&&module.exports?require('./core.js'):root.PeachCore);
+ const api=factory(
+  typeof module==='object'&&module.exports?require('./core.js'):root.PeachCore,
+  typeof module==='object'&&module.exports?require('./hls-support.js'):root.PeachHls);
  if(typeof module==='object'&&module.exports)module.exports=api;else root.PeachJavinfo=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(Core){
+})(typeof globalThis!=='undefined'?globalThis:this,function(Core,Hls){
  'use strict';
  const ORIGIN='https://api.javinfo.dev';
  const MAX_BYTES=1_000_000;
@@ -54,8 +56,10 @@
   const streams=body?.extra?.streams;
   // Do not persist signed URLs in IndexedDB. Preserve distinct API-provided
   // native-HLS candidates in memory for pre-play fallback only.
-  const hlsCandidates=PeachHls.candidates(streams?.master,streams?.variants,streamURL);
-  return {metadata,hls:hlsCandidates[0]||'',hlsCandidates,
+  const hlsCandidates=Hls.candidates(streams?.master,streams?.variants,streamURL);
+  const masterURL=streamURL(streams?.master);
+  const hlsCandidateKinds=hlsCandidates.map(url=>url===masterURL?'master':'variant');
+  return {metadata,hls:hlsCandidates[0]||'',hlsCandidates,hlsCandidateKinds,
     available:hlsCandidates.length>0,source:metadata.provider};
  }
  function pageNumber(value){const n=Number(value);if(!Number.isInteger(n)||n<1||n>50)throw Error('ページは1〜50を指定してください');return n;}

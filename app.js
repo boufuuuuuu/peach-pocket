@@ -18,6 +18,7 @@ const Download = PeachDownload;
 const StreamDiagnostics = PeachStreamDiagnostics;
 const Hls = PeachHls;
 const Playback = PeachPlayback;
+const Route = PeachRouteDiagnostics;
 let cloudSession=null,cloudBusy=false;
 const DATABASE='peach-pocket-db1';
 const $=id=>document.getElementById(id);
@@ -35,6 +36,7 @@ let saveTargetId=null, directDownloadAbort=null;
 // Only volatile: never save API-provided signed HLS URLs to IndexedDB or backups.
 let activeHlsCandidates=[],activeHlsIndex=0,playbackClock=Playback.session(),demoPlayback=false;
 let playbackWriteQueue=Promise.resolve();
+let routeTrace=Route.session(),activeHlsKinds=[],routeReport='';
 // Public demonstration HLS streams published for interoperability testing.
 // Unlike locally bundled MP4, these require network access; never store them.
 const HLS_BASELINE=Object.freeze({
@@ -205,7 +207,7 @@ async function playJavinfoMovie(item){
     // A URL in API metadata alone is not proof of unrestricted access. We make
     // Native Safari HLS: try the API's master first, then its distinct
     // variants only if the current candidate fails before actual playback.
-    play(row,detail.hls,{hlsCandidates:detail.hlsCandidates});
+    play(row,detail.hls,{hlsCandidates:detail.hlsCandidates,hlsCandidateKinds:detail.hlsCandidateKinds});
     javinfoStatus(`${code}: ${PROVIDERS[provider]}のHLS候補の再生を試行中。実際の再生開始を確認した場合だけ履歴に記録します。`);
   }finally{javinfoBusy=false;$('javinfoSearchBtn').disabled=false;}
 }
@@ -906,7 +908,7 @@ function playEmbedded(item,url){
  // Cross-origin frame is opaque: playback progress and controls are not accessible.
  const video=$('player');video.pause();video.removeAttribute('src');video.load();video.hidden=true;$('playerStart').hidden=true;
  document.querySelector('.player-actions').hidden=true;
- currentId=null;embedPlaying=true;embeddedCurrentId=item.id;
+ currentId=null;embedPlaying=true;embeddedCurrentId=item.id;resetRouteDiagnostic();
  const frame=$('embeddedPlayer');frame.hidden=false;frame.src=safe;
  const source=$('embeddedSourceLink');source.hidden=!item.referenceURL;if(item.referenceURL)source.href=item.referenceURL;else source.removeAttribute('href');
  $('playerTitle').textContent=item.title;
@@ -916,6 +918,20 @@ function playEmbedded(item,url){
 function resetPlaybackAccounting(){
  playbackClock=Playback.session();lastSavedAt=0;playbackBegan=false;
 }
+// Per-attempt browser-stage evidence only. Never include media URLs or API secrets.
+function startRouteAttempt(kind){routeTrace.begin(kind);}
+function resetRouteDiagnostic(){
+ routeTrace=Route.session();routeReport='';
+ $('playbackRouteSummary').hidden=true;$('playbackRouteSummary').textContent='';
+ $('copyPlaybackRoute').hidden=true;
+}
+function showRouteDiagnostic(){
+ routeReport=routeTrace.report();
+ $('playbackRouteSummary').textContent=routeReport;
+ $('playbackRouteSummary').hidden=false;
+ $('copyPlaybackRoute').hidden=false;
+}
+
 function playSampleVideo(){
  const sample={id:'__peach_internal_demo__',title:'iPhone再生テスト（6秒）',
     provider:'local',lastPosition:0,hasLocalCopy:false};
@@ -936,11 +952,20 @@ function play(item,url,options={}){
    options.hlsCandidates.filter(v=>typeof v==='string'&&v===Javinfo.streamURL(v)).slice(0,8):[];
  if(activeHlsCandidates.length && !activeHlsCandidates.includes(url))activeHlsCandidates=[];
  activeHlsIndex=activeHlsCandidates.indexOf(url);
+ activeHlsKinds=Array.isArray(options.hlsCandidateKinds)?
+   options.hlsCandidateKinds.filter(k=>k==='master'||k==='variant').slice(0,8):[];
+ resetRouteDiagnostic();
+ if(!demoPlayback){
+  const isHls=(()=>{try{return /\.m3u8$/i.test(new URL(url).pathname);}catch{return false;}})();
+  startRouteAttempt(isHls?(activeHlsKinds[activeHlsIndex]||'directHls'):'directFile');
+ }
  $('playerSaveLocal').hidden=demoPlayback||Boolean(item.hasLocalCopy);
  $('playerExportFile').hidden=demoPlayback||!item.hasLocalCopy;
  // Do not set crossOrigin: Safari's native HLS fetch is separate from JS CORS.
  video.removeAttribute('crossorigin');video.src=url;
  $('playerTitle').textContent=item.title;
+ // The permitted original watch page is always an explicit user option.
+ if(!demoPlayback)showPlaybackSourceLink(item);
  $('playerHelp').textContent=demoPlayback?
   (playbackTestKind==='mp4'?'同梱MP4（H.264/AAC）。通信不要。履歴には登録しません。':
    'Apple公開の標準HLSをSafariネイティブで検証中。通信が必要です。履歴には登録しません。'):item.provider==='local'?
@@ -964,6 +989,7 @@ function play(item,url,options={}){
 function tryNextHlsCandidate(){
  if(playbackBegan||activeHlsIndex<0||activeHlsIndex+1>=activeHlsCandidates.length)return false;
  activeHlsIndex++;playSession++;resetPlaybackAccounting();
+ startRouteAttempt(activeHlsKinds[activeHlsIndex]||'variant');
  const video=$('player'),url=activeHlsCandidates[activeHlsIndex];$('playerStart').hidden=true;
  video.pause();video.removeAttribute('src');video.load();
  video.removeAttribute('crossorigin');video.src=url;
@@ -1039,6 +1065,7 @@ function recordNativePlaying(){
  if(!currentId||embedPlaying||video.paused||video.readyState<2)return;
  // 'playing' means ready to advance; actual media-time progression is required
  // before we declare a confirmed play or increment any watch history.
+ routeTrace.observed('playing');
  playbackClock.start(Number(video.currentTime)||0,performance.now());
 }
 function collectPlaybackTime(stop=false){
@@ -1058,6 +1085,7 @@ function collectPlaybackTime(stop=false){
    }
    return;
  }
+ if(viewed>0.04)routeTrace.advanced();
  if(!playbackBegan&&viewed>0.04){
   playbackBegan=true;
   const id=currentId;
@@ -1087,7 +1115,8 @@ async function closeVideo(){
  try{await savePosition();}catch{toast('再生位置を保存できませんでした');}
  // Finish pending DB writes before changing the session.
  await playbackWriteQueue.catch(()=>{});
- playSession++;activeHlsCandidates=[];activeHlsIndex=0;
+ playSession++;activeHlsCandidates=[];activeHlsKinds=[];activeHlsIndex=0;
+ resetRouteDiagnostic();
  video.removeAttribute('src');video.load();
  if(playingUrl){URL.revokeObjectURL(playingUrl);playingUrl=null;}
  if(subtitleObjectURL){URL.revokeObjectURL(subtitleObjectURL);subtitleObjectURL=null;}
@@ -1314,6 +1343,14 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
      if($('playerDialog').open){$('playerStart').hidden=false;toast('再生を開始できません。配信条件を確認してください');}
    });
  };
+ for(const milestone of ['loadstart','loadedmetadata','loadeddata','canplay','waiting','stalled']){
+  $('player').addEventListener(milestone,()=>{if(currentId&&!demoPlayback&&!embedPlaying)routeTrace.observed(milestone);});
+ }
+ $('copyPlaybackRoute').onclick=async()=>{
+  if(!routeReport)return;
+  try{await navigator.clipboard.writeText(routeReport);toast('機密URLを含まない診断結果をコピーしました');}
+  catch{toast('コピーが許可されませんでした。画面の診断結果を長押しで選択してください');}
+ };
  $('player').addEventListener('playing',recordNativePlaying);
  $('player').addEventListener('timeupdate',()=>{
   collectPlaybackTime();
@@ -1334,12 +1371,17 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
  $('player').addEventListener('error',()=>{
   const video=$('player');if(!video.src||!currentId)return;
   collectPlaybackTime(true);
+  if(!demoPlayback)routeTrace.failed(Number(video.error?.code)||0);
   if(tryNextHlsCandidate())return;
   if(playbackBegan)savePosition().catch(()=>{});
   const item=records.find(r=>r.id===currentId);
   const src=video.currentSrc||video.src;
   const format=(()=>{try{return new URL(src).pathname.toLowerCase().endsWith('.m3u8')?'hls':'file';}catch{return 'file';}})();
   const cls=reportPlaybackDiagnostic(video.error?.code,navigator.onLine,format,src);
+  if(!demoPlayback){
+   showRouteDiagnostic();
+   $('playbackDiagnosticStatus').textContent+='\n'+routeReport;
+  }
   if(demoPlayback){
     if(playbackTestKind==='mp4'){
      $('quickPlayStatus').textContent='同梱MP4を再生できません。Safari／PWAの基本再生を確認してください。';
