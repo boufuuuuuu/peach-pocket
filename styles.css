@@ -109,7 +109,7 @@
 .player-diag-link[hidden]{display:none}
 
 
-/* v1.10.6 API-free startup: visible above optional provider search. */
+/* v1.10.7 API-free startup: visible above optional provider search. */
 .quickplay-panel{background:linear-gradient(145deg,#322732,#1d202a);border:1px solid #a16684;border-radius:16px;padding:15px;margin:14px 0 10px;display:grid;gap:9px;scroll-margin-top:14px}
 .quickplay-panel h2{font-size:19px;margin:0;color:#ffe3ef}
 .quickplay-panel .note{margin:0;font-size:12px;line-height:1.55}
