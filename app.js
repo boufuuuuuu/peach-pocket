@@ -886,9 +886,7 @@ async function start(item){
    // This is an external visit, never a confirmed in-app playback.
    const source=safeURL(item.referenceURL,item.provider);
    if(source){
-     window.open(source,'_blank','noopener,noreferrer');
-     void markExternalOpen(item).catch(e=>toast('外部訪問の保存に失敗: '+e.message));
-     toast('元サイトを開きました（アプリ内再生履歴には加算しません）');
+     openExternalPlaybackPage(source,item);
      return;
    }
    $('manualStreamTitle').value=item.title||'';
@@ -903,10 +901,32 @@ async function start(item){
   try{const url=new URL(item.referenceURL);
     if(liveSettings.mediaOrigins.includes(url.origin)&&/\.(mp4|m4v|mov|webm|m3u8)$/i.test(url.pathname)){play(item,url.href);return;}
   }catch{}
-  toast('元ページを開きます。開いた履歴を保存します');window.open(item.referenceURL,'_blank','noopener,noreferrer');void markExternalOpen(item).catch(e=>toast('履歴の保存に失敗: '+e.message));return;
+  toast('元ページを開きます。開いた履歴を保存します');openExternalPlaybackPage(item.referenceURL,item);return;
  }
- if(item.referenceURL){window.open(item.referenceURL,'_blank','noopener,noreferrer');void markExternalOpen(item).catch(e=>toast('履歴の保存に失敗: '+e.message));return;}
+ if(item.referenceURL){openExternalPlaybackPage(item.referenceURL,item);return;}
  toast('参照URLを登録してください');
+}
+// iOS Safari blocks window.open when it runs after an async catalog/media lookup.
+// Use a real link click for external provider pages. This does not extract
+// streams, bypass access controls, or count the visit as in-app playback.
+function openExternalPlaybackPage(raw,item){
+ const safe=item?.provider?safeURL(raw,item.provider):raw;
+ if(!safe){toast('有効な元サイトURLがありません');return;}
+ const standalone=Boolean(navigator.standalone)||window.matchMedia?.('(display-mode: standalone)').matches;
+ if(standalone){
+  void markExternalOpen(item).catch(e=>toast('外部訪問の保存に失敗: '+e.message));
+  location.assign(safe);
+  return;
+ }
+ const link=elem('a','external-playback-fallback','元サイトで再生');
+ link.href=safe;link.target='_blank';link.rel='noopener noreferrer';link.referrerPolicy='no-referrer';
+ link.style.position='fixed';link.style.left='-10000px';link.style.top='0';
+ document.body.append(link);
+ link.addEventListener('click',()=>{void markExternalOpen(item).catch(()=>{});},{once:true});
+ link.click();
+ setTimeout(()=>link.remove(),1500);
+ void markExternalOpen(item).catch(e=>toast('外部訪問の保存に失敗: '+e.message));
+ toast('元サイトを開きました。再生はSafari側で行われます');
 }
 // Prefer the legitimate original site when the embedded/direct stream cannot play.
 function showPlaybackSourceLink(item){
