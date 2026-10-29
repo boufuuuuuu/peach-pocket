@@ -940,11 +940,28 @@ function hidePrivatePlaybackURLs(){
  btn.textContent='🔒 完全URLを端末上で一時表示（共有注意）';
  btn.setAttribute('aria-expanded','false');
 }
+// Feedback next to the button is essential on iPhone: playerHelp can be
+// outside the viewport, and the failed stream often produces no visible video.
+function setManualHlsRetryFeedback(message,state='info'){
+ const node=$('manualHlsRetryStatus');
+ node.textContent=message;
+ node.hidden=!message;
+ node.dataset.state=state;
+}
+function setManualHlsRetryAction(available){
+ const button=$('manualHlsRetry');
+ const next=activeHlsIndex+1;
+ const hasNext=activeHlsIndex>=0&&next<activeHlsCandidates.length;
+ button.hidden=!available||!hasNext;
+ button.disabled=false;
+ if(!button.hidden)button.textContent=`▶ 次の画質を試す（候補 ${next+1}/${activeHlsCandidates.length}）`;
+}
 function resetRouteDiagnostic(){
  routeTrace=Route.session();routeReport='';
  $('playbackRouteSummary').hidden=true;$('playbackRouteSummary').textContent='';
  $('copyPlaybackRoute').hidden=true;
  $('revealPlaybackUrls').hidden=true;hidePrivatePlaybackURLs();
+ setManualHlsRetryAction(false);setManualHlsRetryFeedback('');
 }
 function showRouteDiagnostic(){
  routeReport=routeTrace.report($('siteVersion').textContent);
@@ -1075,24 +1092,34 @@ async function inspectStreamOnDemand(){
   if(currentSession===playSession){button.textContent='🔍 HTTP・HLS診断を手動実行（任意）';button.disabled=false;}
  }
 }
-function tryNextHlsCandidate(){
+function tryNextHlsCandidate({manual=false}={}){
  if(playbackBegan||activeHlsIndex<0||activeHlsIndex+1>=activeHlsCandidates.length)return false;
  activeHlsIndex++;playSession++;resetPlaybackAccounting();
+ const number=activeHlsIndex+1,total=activeHlsCandidates.length;
+ // Update an aria-live status at the tap location before attempting network playback.
+ setManualHlsRetryAction(false);
+ setManualHlsRetryFeedback(`候補 ${number}/${total} を読み込み中です。再生できるか確認しています…`,'loading');
  startRouteAttempt(activeHlsKinds[activeHlsIndex]||'variant',activeHlsCandidates[activeHlsIndex]);
  const video=$('player'),url=activeHlsCandidates[activeHlsIndex];$('playerStart').hidden=true;
- video.pause();video.removeAttribute('src');video.load();
- video.removeAttribute('crossorigin');video.src=url;
+ // A new src abandons the old resource; don't start a separate empty-src load.
+ video.pause();video.removeAttribute('crossorigin');video.src=url;video.load();
  const activeSession=playSession,record=records.find(r=>r.id===currentId);
  video.addEventListener('loadedmetadata',function(){
-  if(activeSession===playSession&&record?.lastPosition>1&&
-    Number.isFinite(video.duration)&&video.duration>record.lastPosition+5)
+  if(activeSession!==playSession)return;
+  setManualHlsRetryFeedback(`候補 ${number}/${total}：メタデータを取得しました。再生開始を確認中です。`,'loading');
+  if(record?.lastPosition>1&&Number.isFinite(video.duration)&&video.duration>record.lastPosition+5)
    try{video.currentTime=record.lastPosition;}catch{}
  },{once:true});
- $('playerHelp').textContent=`前のHLS候補は再生できませんでした。API提供の別画質候補 ${activeHlsIndex+1}/${activeHlsCandidates.length} をSafariで再試行中です。`;
+ $('playerHelp').textContent=`API提供のHLS候補 ${number}/${total} をSafariで${manual?'手動':'自動'}再試行中です。`;
  // iOS can require an explicit user tap after an asynchronous fallback.
- video.play().catch(()=>{
+ video.play().catch(err=>{
    if(activeSession!==playSession||!$('playerDialog').open)return;
+   // A second tap helps only when autoplay was rejected; it cannot repair an
+   // HTTP denial, unsupported playlist or codec.
+   if(err?.name!=='NotAllowedError')return;
    $('playerStart').hidden=false;
+   setManualHlsRetryFeedback(
+    `候補 ${number}/${total}：Safariが自動再生を拒否しました。「▶ 再生を開始」を押してください。`,'attention');
    $('playerHelp').textContent+=' 「▶ 再生を開始」を押してください。';
  });
  return true;
@@ -1177,6 +1204,10 @@ function collectPlaybackTime(stop=false){
  if(viewed>0.04)routeTrace.advanced();
  if(!playbackBegan&&viewed>0.04){
   playbackBegan=true;
+  if(activeHlsIndex>=0&&activeHlsCandidates.length){
+   setManualHlsRetryAction(false);
+   setManualHlsRetryFeedback(`候補 ${activeHlsIndex+1}/${activeHlsCandidates.length}：実再生を確認しました。`,'success');
+  }
   const id=currentId;
   persistPlayback(id,{started:true}).catch(()=>toast('再生開始履歴を保存できませんでした'));
  }
@@ -1441,7 +1472,13 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
   catch{toast('コピーが許可されませんでした。画面の診断結果を長押しで選択してください');}
  };
  $('revealPlaybackUrls').onclick=togglePrivatePlaybackURLs;
- $('manualHlsRetry').onclick=()=>{if(!tryNextHlsCandidate()){$('manualHlsRetry').hidden=true;toast('これ以上の画質候補はありません');}};
+ $('manualHlsRetry').onclick=()=>{
+  if(!tryNextHlsCandidate({manual:true})){
+   setManualHlsRetryAction(false);
+   setManualHlsRetryFeedback('次に試せる画質候補はありません。元サイトでの再生をご利用ください。','failed');
+   toast('これ以上の画質候補はありません');
+  }
+ };
  $('confirmDirectBlock').onclick=confirmBrowserDirectBlock;
  $('manualNetworkProbe').onclick=()=>void inspectStreamOnDemand();
  $('player').addEventListener('playing',recordNativePlaying);
@@ -1469,7 +1506,15 @@ async function init(){db=await openDB();await initDevice();await initLiveSetting
   const sourceURL=video.currentSrc||video.src;
   const manualRetry=!demoPlayback&&holdForManualSameHostRetry(mediaCode,sourceURL);
   if(!manualRetry && tryNextHlsCandidate())return;
-  $('manualHlsRetry').hidden=!manualRetry;
+  setManualHlsRetryAction(manualRetry);
+  if(!demoPlayback&&activeHlsIndex>=0&&activeHlsCandidates.length){
+   const number=activeHlsIndex+1,total=activeHlsCandidates.length;
+   const nextAvailable=manualRetry;
+   const detail=nextAvailable?
+    `候補 ${number}/${total}：MediaError ${mediaCode} で再生失敗。次の画質を手動で試せます。`:
+    `候補 ${number}/${total}：MediaError ${mediaCode} で再生失敗。${number>=total?'全候補の試行が終了しました。':'自動再試行は行いません。'}`;
+   setManualHlsRetryFeedback(detail,'failed');
+  }
   if(playbackBegan)savePosition().catch(()=>{});
   const item=records.find(r=>r.id===currentId);
   const src=video.currentSrc||video.src;

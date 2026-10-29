@@ -147,3 +147,15 @@
 .cdn-access-notice:not([hidden]){display:block;background:#322b39;border-left:3px solid var(--accent);border-radius:9px;padding:11px 12px;line-height:1.65;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
 #manualHlsRetry:not([hidden]){border-color:#c08baa}
 #confirmDirectBlock:not([hidden]){border-style:dashed}
+
+
+/* v1.10.14: visible feedback adjacent to manual HLS retry on iPhone. */
+.manual-hls-status:not([hidden]){
+ display:block;margin:10px 0;padding:11px 13px;
+ border:1px solid var(--line);border-left:4px solid var(--accent);
+ border-radius:10px;background:#252735;color:var(--text);
+ white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;
+}
+.manual-hls-status[data-state="failed"]{border-left-color:#e3a0aa}
+.manual-hls-status[data-state="success"]{border-left-color:#8ec9a9}
+.manual-hls-status[data-state="loading"]{border-left-color:#f2c18c}
